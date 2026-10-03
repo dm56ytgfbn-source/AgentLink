@@ -1,0 +1,33 @@
+{
+  "name": "agentlink",
+  "version": "0.1.0-rc.3",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:windows-node": "tsc -p tsconfig.windows-node.json",
+    "test": "npm run build && node --test dist/tests/*.test.js",
+    "node": "node dist/apps/node/main.js",
+    "agentlink": "node dist/apps/runtime/cli.js",
+    "mcp": "node dist/apps/runtime/mcp.js",
+    "test:retained": "npm run build && node scripts/test-retained.mjs",
+    "input-share": "node dist/apps/input-share/main.js",
+    "build:input-share": "node scripts/build-input-share.mjs",
+    "test:input-share": "npm run build && node --test dist/tests/input-share.test.js",
+    "test:hardening": "npm run build && node --test dist/tests/hardening.test.js dist/tests/pairing-auto.test.js dist/tests/ui.test.js dist/tests/layout-live.test.js dist/tests/input-share.test.js",
+    "release": "node scripts/release.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "webdav-server": "^2.6.3",
+    "zod": "^4.6.2"
+  }
+}

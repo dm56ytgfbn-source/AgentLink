@@ -1,0 +1,54 @@
+name: Source validation
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  retained-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Enable Git OpenSSL on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: '"C:\Program Files\Git\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Append'
+      - run: npm ci --ignore-scripts
+      - run: npm run test:retained
+      - run: npm run build:windows-node
+      - name: Verify publication boundaries (fixtures retained)
+        run: python scripts/test-package-source.py
+      - name: Build native viewer
+        if: runner.os == 'macOS'
+        run: node scripts/build-native.mjs 'build/AgentLink Windows.app'
+      - name: Verify native HTTPS client
+        if: runner.os == 'macOS'
+        run: node scripts/test-native-client.mjs
+      - name: Build Mac menu bar app and verify it reads real state
+        if: runner.os == 'macOS'
+        run: |
+          node scripts/build-mac-app.mjs 'build/AgentLink.app'
+          'build/AgentLink.app/Contents/MacOS/AgentLinkMenu' --selftest
+
+      - name: Build Mac input sharing helper
+        if: runner.os == 'macOS'
+        run: node scripts/build-input-share.mjs 'build/AgentLink Input.app'
+      - name: Verify Mac physical input state recovery without capture
+        if: runner.os == 'macOS'
+        run: '"build/AgentLink Input.app/Contents/MacOS/AgentLinkInput" --test-input-state'
+      - name: Build Windows tray app and verify it reads state
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          node scripts/build-windows-app.mjs 'build/AgentLinkTray.exe'
+          & 'build/AgentLinkTray.exe' --selftest
+
+      - name: Build Windows input sharing helper
+        if: runner.os == 'Windows'
+        run: node scripts/build-input-share.mjs 'build/AgentLinkInput.exe'

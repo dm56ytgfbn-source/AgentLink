@@ -1,0 +1,37 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import os from 'node:os';
+import path from 'node:path';
+import { createNode, type Config } from '../apps/node/server.js';
+import { call, type Device } from '../apps/runtime/client.js';
+import { reconnectDevice } from '../apps/runtime/reconnect.js';
+
+test('stable TLS identity authenticates a changed route; wrong identity never rewrites registry', async t => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'agentlink-reconnect-retained-'));
+  const root = path.join(dir, 'share'); await mkdir(root);
+  const cert = path.join(dir, 'cert.pem'), key = path.join(dir, 'key.pem');
+  execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', cert, '-days', '1', '-subj', '/CN=paired-device.test', '-addext', 'subjectAltName=DNS:paired-device.test', '-addext', 'extendedKeyUsage=serverAuth'], { stdio: 'ignore' });
+  const config: Config = { device_id: 'paired', name: 'fixture', host: '127.0.0.1', port: 0, cert, key, token: 'fixture'.repeat(10), allowed_roots: [root], mode: 'read-only', capabilities: ['filesystem'], audit: path.join(dir, 'audit.jsonl'), kill_switch: path.join(dir, 'STOP') };
+  const { server } = await createNode(config);
+  await new Promise<void>(r => server.listen(0, '127.0.0.1', r));
+  t.after(() => { server.closeAllConnections(); return new Promise<void>(r => server.close(() => r())); });
+  const url = `https://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const device: Device = { name: 'fixture', device_id: 'paired', url, token: config.token, ca: cert, tls_server_name: 'paired-device.test' };
+  assert.equal((await call(device) as { device_id: string }).device_id, 'paired');
+  await assert.rejects(call({ ...device, tls_server_name: undefined }));
+  await assert.rejects(call({ ...device, tls_server_name: 'wrong-device.test' }));
+  const file = path.join(dir, 'registry.local.json');
+  const before = JSON.stringify({ devices: [{ ...device, url: 'https://192.0.2.1:7443' }] });
+  await writeFile(file, before, { flag: 'wx', mode: 0o600 });
+  await assert.rejects(reconnectDevice(file, 'fixture', url, async () => ({ device_id: 'wrong' })), /identity mismatch/);
+  assert.equal(await readFile(file, 'utf8'), before);
+  await assert.rejects(reconnectDevice(file, 'fixture', 'http://127.0.0.1'), /HTTPS endpoint/);
+  const result = await reconnectDevice(file, 'fixture', url);
+  assert.equal(result.changed, true);
+  assert.equal(await readFile(result.backup!, 'utf8'), before);
+  const saved = JSON.parse(await readFile(file, 'utf8')).devices[0];
+  assert.equal(saved.url, url); assert.equal(saved.token, device.token); assert.equal(saved.tls_server_name, device.tls_server_name);
+  assert.equal((await reconnectDevice(file, 'fixture', url)).changed, false);
+});

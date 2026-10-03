@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "agentlink": {
+      "command": "/absolute/path/to/node",
+      "args": ["/absolute/path/to/agentlink/dist/apps/runtime/mcp.js"],
+      "env": {
+        "AGENTLINK_CONFIG": "/absolute/private/runtime.local.json",
+        "AGENTLINK_SESSION": "my-agent-session"
+      }
+    }
+  }
+}

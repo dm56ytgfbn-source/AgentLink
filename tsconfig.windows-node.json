@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "apps/node/**/*.ts",
+    "adapters/**/*.ts",
+    "packages/**/*.ts",
+    "apps/input-share/**/*.ts"
+  ]
+}

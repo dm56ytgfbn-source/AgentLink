@@ -1,0 +1,12 @@
+node_modules/
+dist/
+build/
+*.local.json
+*.pem
+*.key
+*.log
+*.jsonl
+.DS_Store
+.agentlink-context
+certificates/
+Backups/
