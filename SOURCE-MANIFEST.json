@@ -2,7 +2,7 @@
   "algorithm": "sha256",
   "files": {
     ".github/workflows/ci.yml": "63076506d213ed7029d269ec536eada07bea889c9b53d5ccf421769c76537cd8",
-    ".github/workflows/installer-preview.yml": "6677184eac8525b2affaf99a837a1d0e609e764f85aadbb7d5d3564dbdcd5aee",
+    ".github/workflows/installer-preview.yml": "ff4c7a0cd119be7f737c99cb065089e5f692cdc267bd32dbca3440a1d6b6b2fb",
     ".gitignore": "cd673c80d9dfd7b97835b96f31d5ff7b2fafc453baa1ba552f7401110fc817cd",
     "LICENSE": "f10da239ca78f3af2fae627ea38db5406293fd8c3dd0cffb269ed76e91f9497c",
     "Mac-\u542f\u52a8\u952e\u9f20\u5171\u4eab.command": "f75902ef4e25aa807ebd3effc13756182642b9875811a95ae57323a2200b9730",
@@ -47,7 +47,7 @@
     "apps/runtime/webdav.ts": "ae8dc0214c2926871611db80d1c978366b99649ca686e245470d2049f188a7e5",
     "docs/AGENT-INTEGRATION.md": "f3d96c538ea059d563b631385d6fc56fc90439d52a460efcb6690a08846f0399",
     "docs/INPUT-SHARING.md": "92dd0ce3922fd22d749a70a3129c761c86e2d227f00d53f13cfb6adf63241900",
-    "docs/INSTALLERS.md": "13817bd5612daa41a1900a37c0e4314cc907b95a4afc659cb97e7caa6c723515",
+    "docs/INSTALLERS.md": "e33187d9fe3740a4c1a6d9d5c7fdb9eb5ab5b7d3675ebc88121cb60016e94e7b",
     "docs/PEER-ARCHITECTURE-2026-10-02.md": "29f3c6181b82934aacd95918e7d1ec412550d51f7d50886eca85357ea836ac80",
     "docs/PROTOCOL.md": "f0cdd990d89c17ac407c471e1b07bef4666d68b46912dd6b671c56a0d9cdeddf",
     "docs/PUBLIC-README.md": "5270820b2b3624aeb6ad855580ef1ec0eeba97ab030d593b08f3af19dd197619",

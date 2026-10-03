@@ -42,7 +42,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: npm run test:retained
+      - run: npm run build
+      - run: npm run build:windows-node
+      - run: node --test dist/tests/windows-package.test.js dist/tests/input-share.test.js
       - name: Install Inno Setup compiler
         shell: pwsh
         run: choco install innosetup --yes --no-progress
