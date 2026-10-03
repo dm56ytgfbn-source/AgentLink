@@ -21,8 +21,8 @@ $cli = Join-Path $target 'runtime\dist\apps\runtime\cli.js'
 foreach ($file in @($app, $node, $cli)) {
     if (-not (Test-Path $file -PathType Leaf)) { throw "Missing installed file: $file" }
 }
-& $app --selftest
-if ($LASTEXITCODE -ne 0) { throw 'Installed app self-test failed' }
+$selftest = Start-Process -FilePath $app -ArgumentList '--selftest' -Wait -PassThru
+if ($selftest.ExitCode -ne 0) { throw "Installed app self-test failed: $($selftest.ExitCode)" }
 & $node $cli help | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Bundled Node runtime failed' }
 
@@ -34,6 +34,6 @@ if (Test-Path $marker) { throw "Private marker already exists; preserved: $marke
 Set-Content -Path $marker -Value 'preserve-pairing-area' -NoNewline
 Install-Preview
 if ((Get-Content $marker -Raw) -ne 'preserve-pairing-area') { throw 'Upgrade changed private pairing area' }
-& $app --selftest
-if ($LASTEXITCODE -ne 0) { throw 'Upgraded app self-test failed' }
+$selftest = Start-Process -FilePath $app -ArgumentList '--selftest' -Wait -PassThru
+if ($selftest.ExitCode -ne 0) { throw "Upgraded app self-test failed: $($selftest.ExitCode)" }
 Write-Output 'INSTALLER_SMOKE_OK: install, bundled runtime, upgrade and private data preservation'
