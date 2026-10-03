@@ -146,6 +146,6 @@
     "tests/windows-package.test.ts": "5eadef6a532c593e8cae99b2e20ea211008e7e01383a6ca4fe5d5c1c14a38599",
     "tsconfig.json": "5f7cfb6a1282f16f9c06f7d0483dc6a5369a9b72d81ac8a7273dc9470d25e5cd",
     "tsconfig.windows-node.json": "8715f9a3e13d80484b359fbb34423d0b351666056acca568e279901d23559cb8",
-    "windows/AgentLinkTray/Program.cs": "d1e03931703fb5ea1dfafccb59ca2bb925c8b120b0ceb9df5a86c7346a9fc27b"
+    "windows/AgentLinkTray/Program.cs": "c7d1e3b5088a33129b7bc55ca3b82ee422b20b16853f34b94f13bd152e1f44f4"
   }
 }

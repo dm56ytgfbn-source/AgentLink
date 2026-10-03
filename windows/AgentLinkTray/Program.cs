@@ -380,6 +380,7 @@ sealed class TrayApp : ApplicationContext
     Label sharingDetail;
     Label pairedDetail;
     Button sharingButton;
+    Button positionButton;
     Panel sharingCard;
     Panel pairedCard;
     Button moreButton;
@@ -459,11 +460,11 @@ sealed class TrayApp : ApplicationContext
         statusDetail.Text = status.Online
             ? "本机服务已就绪 · 已连接其他电脑 " + status.TargetNames.Count + " 台"
             : (status.Message ?? "正在检查本机服务…");
-        sharingDetail.Text = status.InputShareEnabled && status.InputShareHelperAvailable
-            ? "已就绪 · " + (String.IsNullOrEmpty(status.ScreenPosition) ? "屏幕位置跟随 Mac 设置" : "Mac 在 Windows 的" + PositionName(status.ScreenPosition))
-            : "键鼠共享尚未准备好。点击下方按钮检查配置。";
+        string placement = String.IsNullOrEmpty(status.ScreenPosition) ? "屏幕位置跟随 Mac 设置" : "Mac 在 Windows 的" + PositionName(status.ScreenPosition);
+        sharingDetail.Text = (status.InputShareEnabled && status.InputShareHelperAvailable ? "已就绪 · " : "尚需配置键鼠共享 · ") + placement;
         bool sharingReady = status.InputShareEnabled && status.InputShareHelperAvailable;
         if (sharingButton != null && !sharingButton.IsDisposed) sharingButton.Text = sharingReady ? "设置屏幕位置" : "配置键鼠共享";
+        if (positionButton != null && !positionButton.IsDisposed) positionButton.Visible = !sharingReady;
         if (sharingCard != null && pairedCard != null && moreButton != null)
         {
             sharingCard.Height = 124;
@@ -615,7 +616,8 @@ sealed class TrayApp : ApplicationContext
             Label sharingTitle = label("键鼠共享", 13, true, ink); sharingTitle.SetBounds(20, 13, 450, 30);
             sharingDetail = label("正在检查…", 9, false, muted); sharingDetail.SetBounds(20, 44, 600, 29);
             sharingButton = button("配置键鼠共享", delegate { OpenInputSharing(); }, true); sharingButton.SetBounds(20, 78, 150, 36);
-            sharingCard.Controls.Add(sharingTitle); sharingCard.Controls.Add(sharingDetail); sharingCard.Controls.Add(sharingButton);
+            positionButton = button("设置屏幕位置", delegate { OpenScreenPosition(); }, false); positionButton.SetBounds(182, 78, 150, 36);
+            sharingCard.Controls.Add(sharingTitle); sharingCard.Controls.Add(sharingDetail); sharingCard.Controls.Add(sharingButton); sharingCard.Controls.Add(positionButton);
             pairedCard = new Panel(); pairedCard.SetBounds(0, 358, 644, 130); pairedCard.BackColor = Color.White;
             Label pairedTitle = label("连接其他电脑", 13, true, ink); pairedTitle.SetBounds(20, 12, 450, 30);
             pairedDetail = label("正在检查…", 9, false, muted); pairedDetail.SetBounds(20, 43, 600, 29);
