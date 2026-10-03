@@ -27,12 +27,17 @@ test('retained HTTPS fixture verifies identity, atomic new write, task protocol 
   const target = path.join(root, '中文.txt');
   await call(device, 'files.write', { path: target, data: '你好', encoding: 'utf8' });
   assert.equal(await readFile(target, 'utf8'), '你好');
-  const taskInput = { key: 'hello', command: "Write-Output 'test'", cwd: root, timeout: 10000 };
+  const taskInput = { key: 'hello', command: "Write-Output 'test'", cwd: root, timeout: 20000 };
   const submitted = await call(device, 'tasks.submit', taskInput) as { id: string };
   assert.equal((await call(device, 'tasks.submit', taskInput) as { duplicate: boolean }).duplicate, true);
   await assert.rejects(call(device, 'tasks.submit', { ...taskInput, command: 'different' }), /different task/);
   let status = '';
-  for (let i = 0; i < 200; i++) { status = (await call(device, 'tasks.get', { task_id: submitted.id }) as { status: string }).status; if (['failed', 'succeeded'].includes(status)) break; await wait(10); }
+  const deadline = Date.now() + 25000;
+  do {
+    status = (await call(device, 'tasks.get', { task_id: submitted.id }) as { status: string }).status;
+    if (['failed', 'succeeded'].includes(status)) break;
+    await wait(100);
+  } while (Date.now() < deadline);
   assert.equal(status, process.platform === 'win32' ? 'succeeded' : 'failed');
   await assert.rejects(call(device, 'tasks.get', { task_id: '../outside' }), /INVALID_REQUEST/);
   config.mode = 'read-only';

@@ -121,7 +121,7 @@
     "tests/filesystem.test.ts": "1e135b6a28228d521f93c730edb742dce533a2f6a25a923658d4e3f62520e661",
     "tests/hardening.test.ts": "0f7044053806390145e6420b06e295d0b0a81e13f7581412ffdb714da348c72b",
     "tests/health.test.ts": "b340c8302218b90284fbdb7efd45c13785ad6923d60dd855f48b59f52c27a36b",
-    "tests/https-retained.test.ts": "afe1beef09800cde1d6c6922a6565109275bc4c39689eff9c4dcaa992cb0367c",
+    "tests/https-retained.test.ts": "eaa2c0e5eee7458e114f15507fd4ba27777d01930ea46d03fb91049fe2e7ccf6",
     "tests/input-share.test.ts": "9e2ba9779e0df4ceb59fd7224afd39ba67f9564c014edb5427ff1f2b5c2547f6",
     "tests/install.test.ts": "d356683fac8ebf405617b7b87c05bf61bd9c824176b4ef5d92d3ab72b72dc4be",
     "tests/integration.test.ts": "a9b8368a27f66439582116e7a9b86f8333175f9648f042be3d032b8599a25c9e",
