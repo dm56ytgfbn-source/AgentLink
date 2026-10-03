@@ -1,33 +1,34 @@
-import {mkdir,mkdtemp,writeFile,readFile,cp,chmod} from 'node:fs/promises';
+import {mkdir,mkdtemp,writeFile,readFile,stat} from 'node:fs/promises';
+import {existsSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import path from 'node:path';import {fileURLToPath} from 'node:url';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const version=JSON.parse(await readFile(path.join(root,'package.json'),'utf8')).version;
-const releases=path.resolve(root,'../Releases');await mkdir(releases,{recursive:true});
-const out=await mkdtemp(path.join(releases,'AgentLink-'+version+'-'));
-const mac=path.join(out,'Mac');await mkdir(mac);
-const app=path.join(mac,'AgentLink.app');
-const run=(script,args=[])=>execFileSync(process.execPath,[path.join(root,'scripts',script),...args],{cwd:root,stdio:'inherit'});
-run('package-mac-app.mjs',[app]);
-run('verify-release.mjs',[app]);
-for(const name of ['1-让这台电脑可被使用.command','2-查找并连接电脑.command','导入配对.command']){
- let text=await readFile(path.resolve(root,'..',name),'utf8');
- text=text.replace('for candidate in "/Applications/AgentLink.app"', 'for candidate in "$PWD/AgentLink.app" "/Applications/AgentLink.app"');
- const file=path.join(mac,name);await writeFile(file,text);await chmod(file,0o755);
+const releases=path.join(root,'build','releases');await mkdir(releases,{recursive:true});
+const out=process.argv[2] ? path.resolve(process.argv[2]) : await mkdtemp(path.join(releases,'AgentLink-'+version+'-'));
+if (process.argv[2]) {
+  if (existsSync(out)) throw Error('Release output exists; preserved: '+out);
+  await mkdir(out,{recursive:true});
 }
-const settings=path.join(mac,'打开设置.command');
-await writeFile(settings,'#!/bin/zsh\nopen "${0:A:h}/AgentLink.app/Contents/Resources/AgentLink Settings.app"\n');await chmod(settings,0o755);
-await writeFile(path.join(mac,'使用说明.txt'),[
- 'AgentLink '+version+'（待双机验收）',
- '双击「打开设置.command」进入设置，也可以打开 AgentLink.app，在主窗口点「设置」。',
- '应用自带 Node 和 Mac 原生输入程序，可整包移动；不要单独挪出内部组件。',
- '首次连接：被控电脑启动服务，连接方点添加电脑；Windows 弹窗点「是」即完成配对，不用输入验证码。',
- '旧配对配置继续保留。新设备只在被控电脑点「是」后加入。',
- '键鼠共享仍需 macOS 辅助功能和输入监控授权，签名变化可能需要重新授权。',
- '此包为本机 ad-hoc 签名，尚未完成 Developer ID 公证或异机安装验证。',
- '不要删除旧版本；建议完成双机验收后再决定是否替换。',
-].join('\n'));
-run('package-windows.mjs',[path.join(out,'AgentLink-Windows-'+version+'.zip')]);
-execFileSync('/usr/bin/ditto',['-c','-k','--sequesterRsrc','--keepParent',mac,path.join(out,'AgentLink-Mac-'+version+'.zip')],{stdio:'inherit'});
-await writeFile(path.join(out,'RELEASE.json'),JSON.stringify({version,created_at:new Date().toISOString(),mac_app:app,verified:'local-package-checks',pending:['Windows runtime','physical two-device input','clean-machine install','Developer ID signing/notarization']},null,2)+'\n');
+const run=(script,args=[])=>execFileSync(process.execPath,[path.join(root,'scripts',script),...args],{cwd:root,stdio:'inherit'});
+let artifact;
+if(process.platform==='darwin'){
+  const app=path.join(out,'AgentLink.app');
+  const dmg=path.join(out,`AgentLink-${version}-mac-${process.arch}.dmg`);
+  const metadata=path.join(out,'mac-package.json');
+  run('package-mac-app.mjs',[app]);
+  run('verify-release.mjs',[app]);
+  run('package-mac-dmg.mjs',['--source',app,'--out',dmg,'--metadata',metadata]);
+  artifact=JSON.parse(await readFile(metadata,'utf8')).artifact;
+}else if(process.platform==='win32'){
+  run('package-windows-installer.mjs',[out]);
+  artifact=path.join(out,`AgentLink-Setup-${version}-windows-x64.exe`);
+}else throw Error('Installer builds require macOS or Windows');
+const data=await readFile(artifact);
+await writeFile(path.join(out,'RELEASE.json'),JSON.stringify({version,platform:process.platform,
+  architecture:process.arch,created_at:new Date().toISOString(),artifact:path.basename(artifact),
+  bytes:(await stat(artifact)).size,sha256:createHash('sha256').update(data).digest('hex'),
+  public_release_ready:false,
+  pending:['code signing','macOS notarization where applicable','clean-machine install and upgrade tests']},null,2)+'\n');
 console.log('RELEASE_DIRECTORY='+out);

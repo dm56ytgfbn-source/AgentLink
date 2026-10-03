@@ -11,16 +11,19 @@ ROOT = Path(__file__).resolve().parent.parent
 DIRECTORIES = {"apps": {".ts"}, "packages": {".ts"}, "adapters": {".ts"},
                "tests": {".ts"}, "scripts": {".mjs", ".ps1", ".py"},
                "scripts/windows-package": {".cmd", ".txt"},
-               "mac": {".swift"}, "agents": {".md"}, "windows": {".cs"}}
+               "mac": {".swift"}, "agents": {".md"}, "windows": {".cs"},
+               "packaging": {".iss"}}
 FILES = ["LICENSE", "Mac-启动键鼠共享.command", "package.json", "package-lock.json", "tsconfig.json", "tsconfig.windows-node.json",
          "agents/AGENT-GUIDE.md",
          "native/AgentLinkWindowApp.swift", "native/Mount.swift", "native/InputShareMac.swift", "native/InputShareWindows.cs", "docs/INPUT-SHARING.md", "examples/input-share-layout.example.json", "SECURITY.md",
          "docs/SETUP.md", "docs/RELEASE-ACCEPTANCE.md", "docs/PROTOCOL.md", "docs/AGENT-INTEGRATION.md",
          "docs/PUBLIC-README.md", "docs/RELEASE-NOTES-ZH.md", "docs/PEER-ARCHITECTURE-2026-10-02.md",
-         "examples/mcp-config.example.json", ".github/workflows/ci.yml"]
+         "docs/INSTALLERS.md", "examples/mcp-config.example.json", ".github/workflows/ci.yml",
+         ".github/workflows/installer-preview.yml"]
 IGNORE = """node_modules/
 dist/
 build/
+.build/
 *.local.json
 *.pem
 *.key

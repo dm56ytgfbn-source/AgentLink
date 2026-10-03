@@ -13,9 +13,14 @@ import os from 'node:os';
 // because that one does not set the UTF-8 name flag and Windows would show mojibake.
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const out = path.resolve(process.argv[2] ?? path.join(root, 'build', '给Windows电脑.zip'));
-const prebuilt = process.argv[3] ? path.resolve(process.argv[3]) : null;
-if (existsSync(out)) throw Error('Output exists; choose a new path: ' + out);
+const args = process.argv.slice(2);
+const payloadIndex = args.indexOf('--payload-dir');
+const payloadOutput = payloadIndex < 0 ? null : path.resolve(args[payloadIndex + 1] ?? '');
+if (payloadIndex >= 0 && !args[payloadIndex + 1]) throw Error('--payload-dir requires a new directory path');
+const positional = payloadIndex < 0 ? args : args.filter((_, index) => index !== payloadIndex && index !== payloadIndex + 1);
+const out = path.resolve(positional[0] ?? path.join(root, 'build', '给Windows电脑.zip'));
+const prebuilt = positional[1] ? path.resolve(positional[1]) : null;
+if (existsSync(payloadOutput ?? out)) throw Error('Output exists; choose a new path: ' + (payloadOutput ?? out));
 const staging = await mkdtemp(path.join(os.tmpdir(), 'agentlink-windows-package-'));
 const folder = 'AgentLink-Windows';
 const payload = path.join(staging, folder);
@@ -113,7 +118,16 @@ async function writeZip(target, files) {
 await mkdir(path.join(payload, 'runtime'), { recursive: true });
 const copy = (from, to) => cp(path.join(root, from), path.join(payload, to), { recursive: true, filter: source => !SKIP.test(source) });
 execFileSync(process.execPath, [path.join(root,'node_modules/typescript/bin/tsc'),'--project',path.join(root,'tsconfig.json'),'--outDir',path.join(payload,'runtime/dist')], {stdio:'inherit'});
-await copy('node_modules', 'runtime/node_modules');
+// Only ship production packages. The TypeScript compiler and test tooling are build-time only.
+const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
+const packages = Object.keys(lock.packages ?? {}).filter(key => key.startsWith('node_modules/') && lock.packages[key].dev !== true);
+for (const key of packages) {
+  const source = path.join(root, key);
+  if (!existsSync(source)) throw Error('Required production dependency missing: ' + key);
+  const destination = path.join(payload, 'runtime', key);
+  await mkdir(path.dirname(destination), { recursive: true });
+  await cp(source, destination, { recursive: true, dereference: true });
+}
 await copy('agents', 'runtime/agents');
 await copy('package.json', 'runtime/package.json');
 // The other side must install nothing: extracting the archive is the entire setup step, so the
@@ -147,6 +161,12 @@ if (process.platform === 'win32' && !prebuilt) {
 }
 await cp(path.join(root, 'scripts/windows-package/安装说明.txt'), path.join(payload, '使用说明.txt'));
 
-await mkdir(path.dirname(out), { recursive: true });
-await writeZip(out, await collect(staging, '', []));
-console.log(out + '  ' + (await stat(out)).size + ' bytes');
+if (payloadOutput) {
+  await mkdir(path.dirname(payloadOutput), { recursive: true });
+  await cp(payload, payloadOutput, { recursive: true, errorOnExist: true, force: false });
+  console.log(JSON.stringify({ payload: payloadOutput, production_packages: packages.length, retained_staging: staging }));
+} else {
+  await mkdir(path.dirname(out), { recursive: true });
+  await writeZip(out, await collect(staging, '', []));
+  console.log(out + '  ' + (await stat(out)).size + ' bytes');
+}

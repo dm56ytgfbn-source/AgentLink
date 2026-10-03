@@ -1,0 +1,56 @@
+name: Installer preview (unsigned)
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/installer-preview.yml'
+      - 'packaging/**'
+      - 'scripts/package-*'
+      - 'scripts/release.mjs'
+      - 'package.json'
+      - 'package-lock.json'
+permissions:
+  contents: read
+
+jobs:
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run test:retained
+      - run: npm run release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AgentLink-mac-unsigned-preview
+          path: |
+            build/releases/**/AgentLink-*.dmg
+            build/releases/**/AgentLink-*.zip
+            build/releases/**/RELEASE.json
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run test:retained
+      - name: Install Inno Setup compiler
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+      - run: npm run release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AgentLink-windows-unsigned-preview
+          path: |
+            build/releases/**/AgentLink-Setup-*.exe
+            build/releases/**/RELEASE.json
+          if-no-files-found: error

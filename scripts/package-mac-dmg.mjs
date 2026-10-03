@@ -1,4 +1,4 @@
-import {cp, mkdir, rm, writeFile, stat, symlink, readdir} from 'node:fs/promises';
+import {mkdir, writeFile, stat, symlink, readdir} from 'node:fs/promises';
 import {existsSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import path from 'node:path';
@@ -37,38 +37,26 @@ if (!existsSync(runtimeCli)) throw Error('That app is not self-contained (no emb
 
 const version = JSON.parse(await import('node:fs/promises').then(fs => fs.readFile(path.join(root, 'package.json'), 'utf8'))).version;
 const out = path.resolve(flag('--out', path.join(root, 'build', 'AgentLink-' + version + '.dmg')));
+const metadataFile = flag('--metadata', null);
 if (existsSync(out)) throw Error('Output exists; choose a new path to preserve it: ' + out);
+if (metadataFile && existsSync(metadataFile)) throw Error('Metadata output exists; preserved: ' + metadataFile);
 
 const staging = path.join(os.tmpdir(), 'agentlink-dmg-' + Date.now());
 try {
   await mkdir(staging, { recursive: true });
   execFileSync('/bin/cp', ['-R', source, path.join(staging, 'AgentLink.app')], { stdio: 'inherit' });
   await symlink('/Applications', path.join(staging, 'Applications'));
-  // The new machine needs a way to import the pairing without typing commands.
-  // Launcher names are identical here and inside the image: a file the user is told to
-  // double-click must exist under the same name in both places.
-  const launchers = ['1-让这台电脑可被使用.command', '2-查找并连接电脑.command', '导入配对.command'];
-  for (const name of launchers) {
-    const launcher = path.join(root, '..', name);
-    if (existsSync(launcher)) await cp(launcher, path.join(staging, name), { recursive: true });
-  }
   await writeFile(path.join(staging, '安装说明.txt'), [
     'AgentLink ' + version,
     '',
     '1. 把左边的 AgentLink.app 拖到右边的 Applications。',
-    '2. 打开 App：菜单栏会出现图标，点它可以看状态。',
-    '3. 首次使用点「修复并启动后台服务」，它会安装/启动登录自启并统一安装位置。',
-        '4. 需要给别的电脑使用时，用「复制接入命令」把 Agent 配置粘到对方的 Agent 里。',
-    '5. 如果你要在“另一台电脑”上用：先在旧电脑执行 pair export 导出配对文件，',
-    '   再在新电脑上双击旁边的「导入配对.command」导入。',
+    '2. 打开 AgentLink，日常操作都在应用窗口内完成。',
+    '3. 在要被使用的电脑上点「允许其他设备使用这台电脑」。',
+    '4. 在另一台电脑点「添加电脑」，然后在被使用的电脑上确认配对。',
+    '5. 需要跨屏键鼠时，按应用指引开启 macOS 辅助功能和输入监控。',
     '',
-    '',
-    '两台电脑互相连接（不需要拷贝任何文件）：',
-    '  A 电脑双击「1-让这台电脑可被使用.command」，保持窗口开着；',
-    '  B 电脑双击「2-查找并连接电脑.command」，按回车即可连上。',
-    '',
-    '这个 App 自带运行时，不需要预装 Node.js，也可以放在任意位置运行。',
-    '卸载：把 App 拖到废纸篓；后台服务用 launchctl bootout gui/$(id -u) 加上 plist 路径停止。',
+    '应用自带运行时，不需要另装 Node.js，也不需要运行命令脚本。',
+    '配对身份保存在用户目录，不会随安装包上传或被应用升级覆盖。',
     '',
   ].join('\n'));
 
@@ -88,7 +76,10 @@ try {
     // Without --keepParent the archive root is the staging folder's contents (app + link + notes).
     execFileSync('/usr/bin/ditto', ['-c', '-k', '--sequesterRsrc', staging, artifact], { stdio: 'inherit' });
   }
-  console.log(JSON.stringify({ format, artifact, source, version, bytes: (await stat(artifact)).size }, null, 2));
-} finally {
-  await rm(staging, { recursive: true, force: true });
+  const result = { format, artifact, source, version, bytes: (await stat(artifact)).size, retained_staging: staging };
+  if (metadataFile) await writeFile(metadataFile, JSON.stringify(result, null, 2) + '\n', { flag: 'wx' });
+  console.log(JSON.stringify(result, null, 2));
+} catch (error) {
+  console.error('Staging preserved for inspection: ' + staging);
+  throw error;
 }

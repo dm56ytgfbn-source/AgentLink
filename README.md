@@ -28,6 +28,10 @@ npm run test:retained
 python3 scripts/test-package-source.py
 ```
 
+## Installer previews
+
+`npm run release` builds a self-contained Mac disk image on macOS or a Windows x64 setup EXE on Windows. The build machine needs Node.js; people installing the resulting app do not. These artifacts are currently unsigned development previews and are not yet suitable for a public stable release. See [installer build and release gates](docs/INSTALLERS.md).
+
 Follow [setup instructions](docs/SETUP.md) to create private configuration and pair computers. No working tokens, private keys, or machine-specific pairing files belong in this repository. Use the [MCP configuration example](examples/mcp-config.example.json) for your local agent.
 
 ## Current limits
