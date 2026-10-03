@@ -11,6 +11,7 @@ using System.Threading;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using Microsoft.Win32;
 
 // AgentLink tray app (M2b shell). It is a thin, honest client of the same runtime the CLI,
@@ -108,6 +109,77 @@ static class Runtime
     }
 
     public static string ConfigPath { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".agentlink-node", "node.local.json"); } }
+    public static string PositionPath { get { return Path.Combine(Path.GetDirectoryName(ConfigPath), "input-share-position.json"); } }
+    public static string RegistryPath { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "AgentLink", "config", "runtime.local.json"); } }
+
+    public static string ReadPosition()
+    {
+        try
+        {
+            Dictionary<string, object> data = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(PositionPath));
+            string position = data.ContainsKey("position") ? Convert.ToString(data["position"]) : "";
+            return position == "left" || position == "right" || position == "top" || position == "bottom" ? position : "";
+        }
+        catch { return ""; }
+    }
+
+    public static void SavePosition(string position)
+    {
+        if (position != "" && position != "left" && position != "right" && position != "top" && position != "bottom") throw new Exception("无效的屏幕位置");
+        Directory.CreateDirectory(Path.GetDirectoryName(PositionPath));
+        string contents = new JavaScriptSerializer().Serialize(new Dictionary<string, object> { { "position", position } });
+        File.WriteAllText(PositionPath, contents + "\n", new UTF8Encoding(false));
+    }
+
+    public static List<PeerChoice> Discover(string root)
+    {
+        string output = RunPair(root, "pair discover", 15000);
+        object[] entries = new JavaScriptSerializer().DeserializeObject(output) as object[];
+        List<PeerChoice> peers = new List<PeerChoice>();
+        if (entries == null) return peers;
+        foreach (object entry in entries)
+        {
+            Dictionary<string, object> value = entry as Dictionary<string, object>;
+            if (value == null || !value.ContainsKey("host") || !value.ContainsKey("name")) continue;
+            string host = Convert.ToString(value["host"]);
+            if (!ValidHost(host)) continue;
+            PeerChoice peer = new PeerChoice();
+            peer.Host = host; peer.Name = Convert.ToString(value["name"]);
+            peer.DeviceId = value.ContainsKey("device_id") ? Convert.ToString(value["device_id"]) : "";
+            peer.Port = value.ContainsKey("port") ? Convert.ToInt32(value["port"]) : 7443;
+            peer.Open = value.ContainsKey("pairing_open") && Convert.ToBoolean(value["pairing_open"]);
+            if (peer.Port > 0 && peer.Port <= 65535) peers.Add(peer);
+        }
+        return peers;
+    }
+
+    static bool ValidHost(string host)
+    {
+        return !String.IsNullOrWhiteSpace(host) && host.Length <= 253 && !host.Contains("..")
+            && Regex.IsMatch(host, @"^[A-Za-z0-9][A-Za-z0-9.-]*$");
+    }
+
+    public static string Pair(string root, string host, int port)
+    {
+        if (!ValidHost(host) || port < 1 || port > 65535) throw new Exception("请输入有效的局域网地址和端口");
+        return RunPair(root, "pair auto --host " + host + " --port " + port, 150000);
+    }
+
+    static string RunPair(string root, string arguments, int timeoutMs)
+    {
+        ProcessStartInfo info = new ProcessStartInfo(NodePath(root));
+        info.Arguments = "\"" + CliPath(root) + "\" " + arguments;
+        info.UseShellExecute = false; info.RedirectStandardOutput = true; info.RedirectStandardError = true;
+        info.CreateNoWindow = true; info.StandardOutputEncoding = Encoding.UTF8; info.StandardErrorEncoding = Encoding.UTF8;
+        using (Process process = Process.Start(info))
+        {
+            if (!process.WaitForExit(timeoutMs)) { process.Kill(); throw new Exception("等待配对超时，请在对方电脑重新开放连接后重试"); }
+            string output = process.StandardOutput.ReadToEnd();
+            string error = process.StandardError.ReadToEnd();
+            if (process.ExitCode != 0) throw new Exception(String.IsNullOrWhiteSpace(error) ? output.Trim() : error.Trim());
+            return output.Trim();
+        }
+    }
 
     public static LocalStatus Local(string root)
     {
@@ -120,6 +192,19 @@ static class Runtime
             Dictionary<string, object> config = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(ConfigPath));
             result.Name = Convert.ToString(config["name"]);
             result.Port = Convert.ToInt32(config["port"]);
+            result.DeviceId = Convert.ToString(config["device_id"]);
+            result.ScreenPosition = ReadPosition();
+            try
+            {
+                Dictionary<string, object> registry = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(RegistryPath));
+                object[] targets = registry.ContainsKey("devices") ? registry["devices"] as object[] : null;
+                if (targets != null) foreach (object entry in targets)
+                {
+                    Dictionary<string, object> target = entry as Dictionary<string, object>;
+                    if (target != null && target.ContainsKey("name")) result.TargetNames.Add(Convert.ToString(target["name"]));
+                }
+            }
+            catch { /* No outgoing pairings yet. */ }
             if (config.ContainsKey("input_share"))
             {
                 Dictionary<string, object> sharing = config["input_share"] as Dictionary<string, object>;
@@ -262,6 +347,19 @@ sealed class LocalStatus
     public string Version;
     public string Message;
     public string ConfigPath;
+    public string DeviceId;
+    public string ScreenPosition;
+    public List<string> TargetNames = new List<string>();
+}
+
+sealed class PeerChoice
+{
+    public string DeviceId;
+    public string Name;
+    public string Host;
+    public int Port;
+    public bool Open;
+    public override string ToString() { return Name + " · " + Host + (Open ? " · 可连接" : " · 等待对方允许"); }
 }
 
 sealed class TrayApp : ApplicationContext
@@ -343,11 +441,12 @@ sealed class TrayApp : ApplicationContext
         text.AppendLine("电脑：" + status.Name);
         if (status.Online)
         {
+            text.AppendLine("已连接其他电脑：" + status.TargetNames.Count + " 台" + (status.TargetNames.Count > 0 ? "（" + String.Join("、", status.TargetNames.ToArray()) + "）" : ""));
             text.AppendLine("已保存配对授权：" + status.ClientCount + " 条（" + status.ClientSourceCount + " 个来源，不代表在线数）");
             text.AppendLine("新电脑连接：" + (status.PairingOpen ? "已开放，10 分钟后自动关闭" : "需在此处允许"));
             text.AppendLine("键鼠共享：" + (status.InputShareEnabled && status.InputShareHelperAvailable ? "Windows 端已就绪" : "Windows 端未就绪"));
             text.AppendLine();
-            text.AppendLine("在 Mac 的 AgentLink 中选择这台电脑；以后开机后会自动恢复连接。");
+            text.AppendLine("可以从这台 Windows 主动添加其他电脑，也可以允许其他电脑连接进来。");
         }
         else text.AppendLine("如果持续未就绪，点“检查并启动服务”。");
         return text.ToString();
@@ -358,25 +457,33 @@ sealed class TrayApp : ApplicationContext
         if (heading == null || heading.IsDisposed) return;
         heading.Text = status.Online ? "这台电脑已就绪" : "正在启动连接";
         statusDetail.Text = status.Online
-            ? "Mac 或其他 Agent 可以直接连接到 " + status.Name + "。开机后会自动恢复。"
+            ? "本机服务已就绪 · 已连接其他电脑 " + status.TargetNames.Count + " 台"
             : (status.Message ?? "正在检查本机服务…");
         sharingDetail.Text = status.InputShareEnabled && status.InputShareHelperAvailable
-            ? "已就绪。回到 Mac 的 AgentLink，直接点“开启共享”。"
+            ? "已就绪 · " + (String.IsNullOrEmpty(status.ScreenPosition) ? "屏幕位置跟随 Mac 设置" : "Mac 在 Windows 的" + PositionName(status.ScreenPosition))
             : "键鼠共享尚未准备好。点击下方按钮检查配置。";
         bool sharingReady = status.InputShareEnabled && status.InputShareHelperAvailable;
-        if (sharingButton != null && !sharingButton.IsDisposed) sharingButton.Visible = !sharingReady;
+        if (sharingButton != null && !sharingButton.IsDisposed) sharingButton.Text = sharingReady ? "设置屏幕位置" : "配置键鼠共享";
         if (sharingCard != null && pairedCard != null && moreButton != null)
         {
-            sharingCard.Height = sharingReady ? 92 : 124;
+            sharingCard.Height = 124;
             pairedCard.Top = sharingCard.Bottom + 14;
             moreButton.Top = pairedCard.Bottom + 17;
             technicalPanel.Top = moreButton.Bottom + 6;
             console.ClientSize = new Size(700, (technicalPanel.Visible ? technicalPanel.Bottom : moreButton.Bottom) + 25);
         }
-        pairedDetail.Text = status.ClientSourceCount == 0
-            ? "还没有其他电脑连接。首次使用时，点击“允许新电脑连接”。"
-            : "已授权 " + status.ClientSourceCount + " 个来源，保存了 " + status.ClientCount + " 条记录。记录数不是在线电脑数。";
+        pairedDetail.Text = status.TargetNames.Count == 0
+            ? "还没有连接其他电脑。点击“添加电脑”开始配对。"
+            : "已连接 " + status.TargetNames.Count + " 台：" + String.Join("、", status.TargetNames.ToArray());
         if (consoleText != null && !consoleText.IsDisposed) consoleText.Text = Describe(status);
+    }
+
+    static string PositionName(string position)
+    {
+        if (position == "left") return "左侧";
+        if (position == "top") return "上方";
+        if (position == "bottom") return "下方";
+        return "右侧";
     }
 
     void EnsureService()
@@ -457,6 +564,7 @@ sealed class TrayApp : ApplicationContext
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("打开 AgentLink", null, delegate { OpenConsole(); }));
         menu.Items.Add(new ToolStripMenuItem("刷新", null, delegate { Refresh(); }));
+        menu.Items.Add(new ToolStripMenuItem("添加其他电脑", null, delegate { OpenConnect(); }));
         menu.Items.Add(new ToolStripMenuItem("允许新电脑连接", null, delegate { OpenPairing(); }));
         menu.Items.Add(new ToolStripMenuItem("键鼠共享", null, delegate { OpenInputSharing(); }));
         menu.Items.Add(new ToolStripMenuItem("开机自动连接", null, delegate { EnableStartup(); }));
@@ -511,9 +619,9 @@ sealed class TrayApp : ApplicationContext
             pairedCard = new Panel(); pairedCard.SetBounds(0, 358, 644, 130); pairedCard.BackColor = Color.White;
             Label pairedTitle = label("连接其他电脑", 13, true, ink); pairedTitle.SetBounds(20, 12, 450, 30);
             pairedDetail = label("正在检查…", 9, false, muted); pairedDetail.SetBounds(20, 43, 600, 29);
-            Button connect = button("允许新电脑连接", delegate { OpenPairing(); }, true); connect.SetBounds(20, 82, 155, 36);
-            Button refresh = button("刷新", delegate { Refresh(); }, false); refresh.SetBounds(184, 82, 92, 36);
-            pairedCard.Controls.Add(pairedTitle); pairedCard.Controls.Add(pairedDetail); pairedCard.Controls.Add(connect); pairedCard.Controls.Add(refresh);
+            Button connect = button("添加电脑", delegate { OpenConnect(); }, true); connect.SetBounds(20, 82, 145, 36);
+            Button allow = button("允许别人连接", delegate { OpenPairing(); }, false); allow.SetBounds(177, 82, 145, 36);
+            pairedCard.Controls.Add(pairedTitle); pairedCard.Controls.Add(pairedDetail); pairedCard.Controls.Add(connect); pairedCard.Controls.Add(allow);
             moreButton = button("诊断与设置", delegate { technicalPanel.Visible = !technicalPanel.Visible; console.ClientSize = new Size(700, (technicalPanel.Visible ? technicalPanel.Bottom : moreButton.Bottom) + 25); }, false);
             moreButton.SetBounds(0, 505, 140, 34);
             technicalPanel = new Panel(); technicalPanel.SetBounds(0, 545, 644, 150); technicalPanel.BackColor = Color.White; technicalPanel.Visible = false;
@@ -572,12 +680,119 @@ sealed class TrayApp : ApplicationContext
         catch (Exception error) { MessageBox.Show("设置失败：" + error.Message, "AgentLink"); }
     }
 
+    void OpenConnect()
+    {
+        using (Form dialog = new Form())
+        {
+            dialog.Text = "AgentLink · 添加电脑";
+            dialog.ClientSize = new Size(480, 285);
+            dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
+            dialog.MaximizeBox = false; dialog.MinimizeBox = false;
+            dialog.StartPosition = FormStartPosition.CenterParent;
+            dialog.Font = new Font("Microsoft YaHei UI", 9f);
+            Label hint = new Label(); hint.Text = "在另一台电脑先点“允许新电脑连接”，然后在这里选择它。";
+            hint.SetBounds(18, 16, 450, 28); dialog.Controls.Add(hint);
+            ListBox peers = new ListBox(); peers.SetBounds(18, 48, 445, 110); dialog.Controls.Add(peers);
+            Label addressLabel = new Label(); addressLabel.Text = "找不到？输入对方的局域网 IP 或主机名：";
+            addressLabel.SetBounds(18, 169, 445, 23); dialog.Controls.Add(addressLabel);
+            TextBox address = new TextBox(); address.SetBounds(18, 194, 300, 26); dialog.Controls.Add(address);
+            Label state = new Label(); state.Text = "正在搜索局域网…"; state.SetBounds(18, 232, 315, 40); dialog.Controls.Add(state);
+            Button scan = new Button(); scan.Text = "重新搜索"; scan.SetBounds(328, 191, 135, 30); dialog.Controls.Add(scan);
+            Button connect = new Button(); connect.Text = "连接"; connect.SetBounds(348, 234, 115, 36); dialog.Controls.Add(connect);
+
+            Action search = delegate
+            {
+                scan.Enabled = false; state.Text = "正在搜索局域网…";
+                ThreadPool.QueueUserWorkItem(delegate
+                {
+                    List<PeerChoice> found = null; string error = null;
+                    try { found = Runtime.Discover(root); }
+                    catch (Exception caught) { error = caught.Message; }
+                    try { dialog.BeginInvoke((MethodInvoker)delegate
+                    {
+                        peers.Items.Clear(); scan.Enabled = true;
+                        if (found != null) foreach (PeerChoice peer in found)
+                        {
+                            if (last != null && peer.DeviceId == last.DeviceId) continue;
+                            peers.Items.Add(peer);
+                            if (peer.Open && peers.SelectedIndex < 0) peers.SelectedItem = peer;
+                        }
+                        state.Text = error != null ? "搜索失败，可输入地址连接。" : peers.Items.Count == 0
+                            ? "没有发现电脑，可输入地址连接。" : "找到 " + peers.Items.Count + " 台电脑。";
+                    }); } catch { }
+                });
+            };
+            scan.Click += delegate { search(); };
+            dialog.Shown += delegate { search(); };
+            connect.Click += delegate
+            {
+                string host = address.Text.Trim(); int port = 7443;
+                PeerChoice selected = peers.SelectedItem as PeerChoice;
+                if (host.Length == 0 && selected != null)
+                {
+                    if (!selected.Open) { MessageBox.Show("请先在「" + selected.Name + "」上允许新电脑连接。", "AgentLink"); return; }
+                    host = selected.Host; port = selected.Port;
+                }
+                if (host.Length == 0) { MessageBox.Show("请选择电脑，或输入对方的局域网地址。", "AgentLink"); return; }
+                connect.Enabled = false; scan.Enabled = false; state.Text = "已发出连接请求，请在对方电脑上确认…";
+                ThreadPool.QueueUserWorkItem(delegate
+                {
+                    string error = null;
+                    try { Runtime.Pair(root, host, port); }
+                    catch (Exception caught) { error = caught.Message; }
+                    try { dialog.BeginInvoke((MethodInvoker)delegate
+                    {
+                        connect.Enabled = true; scan.Enabled = true;
+                        if (error != null) { state.Text = "连接未完成。"; MessageBox.Show(error, "AgentLink 连接失败"); }
+                        else { dialog.Close(); Refresh(); MessageBox.Show("已连接到另一台电脑。以后打开 AgentLink 就能继续使用，无需重复配对。", "AgentLink"); }
+                    }); } catch { }
+                });
+            };
+            if (console != null && !console.IsDisposed) dialog.ShowDialog(console); else dialog.ShowDialog();
+        }
+    }
+
+    void OpenScreenPosition()
+    {
+        using (Form dialog = new Form())
+        {
+            dialog.Text = "AgentLink · 屏幕位置";
+            dialog.ClientSize = new Size(390, 175);
+            dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
+            dialog.MaximizeBox = false; dialog.MinimizeBox = false;
+            dialog.StartPosition = FormStartPosition.CenterParent;
+            dialog.Font = new Font("Microsoft YaHei UI", 9f);
+            Label hint = new Label(); hint.Text = "Mac 屏幕相对于这台 Windows 的位置";
+            hint.SetBounds(18, 18, 350, 28); dialog.Controls.Add(hint);
+            ComboBox choices = new ComboBox(); choices.DropDownStyle = ComboBoxStyle.DropDownList;
+            choices.SetBounds(18, 52, 350, 30);
+            choices.Items.AddRange(new object[] { "跟随 Mac 上的设置", "左侧", "右侧", "上方", "下方" });
+            string current = Runtime.ReadPosition();
+            choices.SelectedIndex = current == "left" ? 1 : current == "right" ? 2 : current == "top" ? 3 : current == "bottom" ? 4 : 0;
+            dialog.Controls.Add(choices);
+            Label note = new Label(); note.Text = "保存后约 2 秒内生效，无需重新启动共享。";
+            note.SetBounds(18, 91, 350, 25); dialog.Controls.Add(note);
+            Button save = new Button(); save.Text = "保存位置"; save.SetBounds(249, 127, 119, 34); dialog.Controls.Add(save);
+            save.Click += delegate
+            {
+                try
+                {
+                    string[] positions = { "", "left", "right", "top", "bottom" };
+                    Runtime.SavePosition(positions[choices.SelectedIndex]);
+                    dialog.Close(); Refresh();
+                }
+                catch (Exception error) { MessageBox.Show("保存失败：" + error.Message, "AgentLink"); }
+            };
+            if (console != null && !console.IsDisposed) dialog.ShowDialog(console); else dialog.ShowDialog();
+        }
+    }
+
     void OpenInputSharing()
     {
         if (last == null) { Refresh(); MessageBox.Show("正在读取键鼠共享状态，请稍后再试。", "AgentLink"); return; }
         if (last.InputShareEnabled && last.InputShareHelperAvailable)
         {
-            OpenConsole();
+            OpenScreenPosition();
             return;
         }
         if (MessageBox.Show("Windows 端尚未准备好键鼠共享。现在配置本机辅助程序吗？完成后需要重新启动 AgentLink 服务才能生效。", "AgentLink 键鼠共享", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;

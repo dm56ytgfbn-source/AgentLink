@@ -15,7 +15,7 @@ import {
   access,
   writeFile,
 } from "node:fs/promises";
-import { constants, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { constants, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { authorized, resolveAllowed } from "../../packages/security/index.js";
@@ -33,6 +33,7 @@ import { ReplayGuard, verifySignedRequest } from "../../packages/trust/index.js"
 import { PairingService, type PairedClient } from "./pairing.js";
 import { startAnnouncer, localAddresses } from "../../packages/discovery/index.js";
 import { X509Certificate } from "node:crypto";
+const productVersion = (JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8')) as {version:string}).version;
 export interface Config {
   device_id: string;
   name: string;
@@ -103,6 +104,13 @@ export async function createNode(c: Config, local: { onPairingRequest?: (pending
   // Pairing state: a fresh computer opens a short window so the first computer can join
   // without any manual step; afterwards it stays closed until someone opens it on purpose.
   const pairingMarker = path.join(path.dirname(c.kill_switch), 'PAIRING_OPEN');
+  const inputPositionFile = path.join(path.dirname(c.kill_switch), 'input-share-position.json');
+  const inputPosition = () => {
+    try {
+      const value = (JSON.parse(readFileSync(inputPositionFile, 'utf8')) as {position?:unknown}).position;
+      return value === 'left' || value === 'right' || value === 'top' || value === 'bottom' ? value : undefined;
+    } catch { return undefined; }
+  };
   const pairedFile = path.join(path.dirname(c.audit), 'paired-clients.json');
   const pairedClients: PairedClient[] = Array.isArray(c.paired_clients) ? [...c.paired_clients] : [];
   try {
@@ -122,14 +130,14 @@ export async function createNode(c: Config, local: { onPairingRequest?: (pending
     }),
     isApproved: local.isPairingApproved ?? (pendingId => existsSync(path.join(pairingApprovals, pendingId + '.approved'))),
     station: () => ({ device_id: c.device_id, name: c.name, os: process.platform, hostname: os.hostname(),
-      port: c.port, tls_server_name: tlsName, fingerprint: certificateFingerprint, pairing_open: false, protocol: 1, version: '0.1.0-rc.3' }),
+      port: c.port, tls_server_name: tlsName, fingerprint: certificateFingerprint, pairing_open: false, protocol: 1, version: productVersion }),
     onPaired: async (client) => {
       await writeFile(pairedFile, JSON.stringify(pairedClients, null, 2) + '\n', { mode: 0o600 });
       void client;
     },
   }, c.pairing?.first_run_minutes ?? 10);
   const announcer = startAnnouncer(() => ({ ...pairing.info(),
-    kind: 'agentlink' as const, v: 1, os: process.platform, hostname: os.hostname(), version: '0.2.0',
+    kind: 'agentlink' as const, v: 1, os: process.platform, hostname: os.hostname(), version: productVersion,
     host: localAddresses()[0] ?? '127.0.0.1' }));
   const info: NodeInfo = {
     protocol_version: 2,
@@ -448,7 +456,8 @@ export async function createNode(c: Config, local: { onPairingRequest?: (pending
       }
     },
   );
-  stopInputSharing=attachNodeInput(server,{device_id:c.device_id,token:c.token,enabled:()=>!disabled&&c.mode==='developer'&&c.input_share?.enabled===true,helper:()=>new NativeHelper(c.input_share!.helper),layout:c.input_share?.layout});
+  stopInputSharing=attachNodeInput(server,{device_id:c.device_id,token:c.token,enabled:()=>!disabled&&c.mode==='developer'&&c.input_share?.enabled===true,
+    helper:()=>new NativeHelper(c.input_share!.helper),layout:c.input_share?.layout,position:inputPosition});
   server.requestTimeout = 15000;
   server.headersTimeout = 10000;
   server.on("close", () => {

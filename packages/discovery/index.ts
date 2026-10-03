@@ -115,7 +115,7 @@ export function browse(options: BrowseOptions = {}): Promise<Announcement[]> {
 }
 
 export function describePeers(peers: Announcement[]) {
-  return peers.map(peer => ({ name: peer.name, host: peer.host, port: peer.port,
+  return peers.map(peer => ({ device_id: peer.device_id, name: peer.name, host: peer.host, port: peer.port,
     os: peer.os, pairing_open: peer.pairing_open, fingerprint: peer.fingerprint.slice(0, 16) }));
 }
 

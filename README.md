@@ -4,12 +4,13 @@
 
 AgentLink connects paired macOS and Windows computers on a local network so an AI agent can use a selected computer's files, shell, and applications through MCP. The agent connects to its local AgentLink runtime; each agent session chooses its own target computer.
 
-**Status: 0.1.0-rc.3 preview.** This is an experimental release with unsigned Mac and Windows installer previews, not a production-ready public installer. The cross-platform peer core has been tested, including a live Windows-to-Mac command and file transfer. The one-app experience and three- or four-computer keyboard/mouse layout still need broader validation. See the [implementation record](docs/PEER-ARCHITECTURE-2026-10-02.md).
+**Status: 0.1.0-rc.4 preview.** This is an experimental release with unsigned Mac and Windows installer previews, not a production-ready public installer. The cross-platform peer core has been tested, including a live Windows-to-Mac command and file transfer. The one-app experience and three- or four-computer keyboard/mouse layout still need broader validation. See the [implementation record](docs/PEER-ARCHITECTURE-2026-10-02.md).
 
 ## What works today
 
 - Paired-device identity and authenticated HTTPS, with a separate computer selection for each MCP client session.
 - Files, shell commands, persistent tasks, and application launch on Mac or Windows nodes. Windows uses PowerShell; Mac uses zsh.
+- The Windows app can initiate pairing with another computer or approve incoming pairing, and can set the Mac screen to its left, right, top, or bottom for the current Windows-hosted input sharing setup.
 - Windows window and screen tools for visual checks. The Mac node does not yet advertise these capabilities.
 - Experimental LAN keyboard/mouse sharing between a Mac and Windows, with bidirectional switching and multi-monitor support. [Current boundaries](docs/INPUT-SHARING.md).
 - A Mac settings-window preview can explicitly start its receiving node, show pairing requests, approve them locally, and stop the listener. This code has not replaced the current installed app.

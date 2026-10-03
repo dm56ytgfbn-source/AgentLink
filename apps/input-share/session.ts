@@ -8,9 +8,8 @@ const hello=z.object({t:z.literal('hello'),version:z.literal(VERSION),device_id:
 const ping=z.object({t:z.literal('ping'),at:z.number().finite()}).strict();
 const pong=z.object({t:z.literal('pong'),at:z.number().finite()}).strict();
 const welcome=z.object({t:z.literal('welcome'),version:z.literal(VERSION),device_id:z.string()}).strict();
-// Which screen sits where is a property of the person using the pair, not of the machine
-// being used, so the client sends it: the Mac decides, the Windows host applies it. Changing it
-// mid-session restarts the session instead of mutating a running engine's geometry.
+// Either computer can set a position. A Windows-side choice takes precedence while it exists;
+// otherwise the Mac preference applies. Both can be changed without restarting the session.
 const layoutMessage=z.object({t:z.literal('layout'),mac_position:z.enum(['left','right','top','bottom'])}).strict();
 const focus=z.object({version:z.literal(1),type:z.literal('input-focus'),epoch:z.number().int(),source:z.enum(['windows','mac']).nullable(),target:z.enum(['windows','mac']).nullable(),reason:z.string(),timestamp:z.number()}).strict();
 export interface SessionOptions {device_id:string;token:string;helper:()=>HelperPort;layout?:Layout;macPosition?:MacPosition;
@@ -19,7 +18,16 @@ export interface SessionOptions {device_id:string;token:string;helper:()=>Helper
 export function hostSession(channel:JsonChannel,options:SessionOptions){
  let helper:HelperPort|undefined,engine:InputSharingEngine|undefined,authenticated=false,closed=false;
  let windows:z.infer<typeof displaysSchema>|undefined,mac:z.infer<typeof displaysSchema>|undefined;
- let last=Date.now(),deadline=last+10000,pendingPing:number|null=null,activeLayout=options.layout,activePosition=options.macPosition;
+ let last=Date.now(),deadline=last+10000,pendingPing:number|null=null;
+ let localPosition=options.macPosition,remotePosition:MacPosition|undefined;
+ let activeLayout=localPosition?undefined:options.layout,activePosition=localPosition;
+ let positionTicks=0;
+ const updatePosition=()=>{
+  const next=localPosition??remotePosition;
+  if(next===activePosition&&activeLayout===undefined)return;
+  activePosition=next;activeLayout=undefined;
+  if(engine&&windows&&mac){try{engine.setLayout(next?layoutFor({windows,mac},next):defaultLayout({windows,mac}));}catch{finish('invalid-display-layout');}}
+ };
  const finish=(reason:string)=>{if(closed)return;closed=true;clearInterval(timer);engine?.reset(reason,true);helper?.stop();channel.close(reason);};
  const maybeStart=()=>{if(engine||!windows||!mac)return;try{const screens={windows,mac};engine=new InputSharingEngine(screens,activeLayout??(activePosition?layoutFor(screens,activePosition):defaultLayout(screens)),(side,c)=>{if(side==='windows')helper?.send(c);else channel.send({t:'command',c});});
    engine.on('focus',(event:FocusEvent)=>{channel.send({t:'focus',event});options.onFocus?.(event);});engine.start();
@@ -37,9 +45,7 @@ export function hostSession(channel:JsonChannel,options:SessionOptions){
    try{helper=options.helper();}catch{finish('native-helper-start-failed');return;}helper.on('message',m=>native('windows',m));helper.on('closed',finish);return;
   }
   const l=layoutMessage.safeParse(m);
-  if(l.success){activePosition=l.data.mac_position;activeLayout=undefined;
-   if(engine&&windows&&mac){try{engine.setLayout(layoutFor({windows,mac},activePosition));}catch{finish('invalid-display-layout');}}
-   return;}
+  if(l.success){remotePosition=l.data.mac_position;updatePosition();return;}
   const p=pong.safeParse(m);if(p.success){if(p.data.at!==pendingPing){finish('unexpected-pong');return;}options.onRtt?.(Date.now()-p.data.at);pendingPing=null;last=Date.now();return;}
   const n=nativeMessageSchema.safeParse(m);if(!n.success){finish('invalid-peer-message');return;}native('mac',n.data);
  });
@@ -48,6 +54,9 @@ export function hostSession(channel:JsonChannel,options:SessionOptions){
   if(!engine&&Date.now()>deadline){finish('startup-timeout');return;}
   if(Date.now()-last>1500){finish('heartbeat-timeout');return;}
   if(authenticated){helper?.send({t:'ping'});if(pendingPing===null){pendingPing=Date.now();channel.send({t:'ping',at:pendingPing});}engine?.tick();}
+  if(authenticated&&options.currentPosition&&++positionTicks%8===0){
+   Promise.resolve(options.currentPosition()).then(position=>{if(closed||position===localPosition)return;localPosition=position;updatePosition();}).catch(()=>{});
+  }
  },250);
  channel.on('closed',finish);return {stop:()=>finish('stopped'),get activated(){return authenticated;}};
 }

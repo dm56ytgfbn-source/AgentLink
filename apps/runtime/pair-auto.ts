@@ -112,7 +112,7 @@ export async function finishPairWith(attempt: PairAttempt, paths = resolvePaths(
   do {
     finished = await postJson(new URL('/pair/complete', base), { pending_id: pendingId }, peer.fingerprint);
     if (finished.status !== 202) break;
-    if (Date.now() + 1500 >= attempt.expires) throw new Error('Windows 上未在两分钟内允许连接，请重新尝试');
+    if (Date.now() + 1500 >= attempt.expires) throw new Error('对方电脑未在两分钟内允许连接，请重新尝试');
     await wait(1500);
   } while (true);
   if (finished.status !== 200 || finished.body.ok !== true)

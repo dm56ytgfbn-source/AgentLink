@@ -133,6 +133,24 @@ test('authentication rejects unpaired tokens before any native helper is started
  hostSession(host,{device_id:'fixture',token:'fixture-long-token',helper:()=>{started=true;return new FakeHelper('windows');}});host.on('closed',r=>reason=r);
  peer.send({t:'hello',version:1,device_id:'fixture',token:'unpaired-long-token'});await until(()=>!!reason);assert.equal(reason,'authentication-denied');assert.equal(started,false);peer.close('done');
 });
+test('Windows screen position overrides the Mac preference and changes during sharing',async()=>{
+ const [a,b]=pair();let w:FakeHelper|undefined,m:FakeHelper|undefined;
+ let windowsPosition:'left'|'right'='left';
+ const host=hostSession(new JsonChannel(a),{device_id:'fixture',token:'fixture-long-token',
+  macPosition:windowsPosition,currentPosition:()=>windowsPosition,helper:()=>w=new FakeHelper('windows')});
+ const client=clientSession(new JsonChannel(b),{device_id:'fixture',token:'fixture-long-token',
+  macPosition:'right',helper:()=>m=new FakeHelper('mac')});
+ try{
+  await until(()=>!!w&&!!m);await pause(400);
+  w!.input(move(0,400,-4,0));
+  await until(()=>m!.commands.some(command=>command.t==='mode'&&command.mode==='receive'));
+  windowsPosition='right';
+  await pause(2200);
+  const before=m!.commands.filter(command=>command.t==='mode'&&command.mode==='receive').length;
+  await pause(400);w!.input(move(1919,400,4,0));
+  await until(()=>m!.commands.filter(command=>command.t==='mode'&&command.mode==='receive').length>before);
+ }finally{host.stop();client.stop();}
+});
 test('actual TLS sessions route input both directions, survive idle heartbeats, and stop helpers on disconnect',async()=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'agentlink-input-retained-'));
  const cert=path.join(dir,'cert.pem'),key=path.join(dir,'key.pem');

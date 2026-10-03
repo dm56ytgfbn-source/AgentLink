@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import os from 'node:os';
-import { broadcastTargets, browse, startAnnouncer, DISCOVERY_PORT } from '../packages/discovery/index.js';
+import { broadcastTargets, browse, describePeers, startAnnouncer, DISCOVERY_PORT } from '../packages/discovery/index.js';
 
 // The announcement used to go to 255.255.255.255 only. On a computer carrying a virtual
 // adapter that packet leaves through the virtual interface and never reaches the network the
@@ -41,6 +41,7 @@ test('广播能被打包并重新收到（声明的地址是数据包真正来�
     // The declared host is deliberately unusable here: the collector must report where the
     // packet actually came from, because that is the address that routes back.
     assert.equal(found.host, '127.0.0.1');
+    assert.equal(describePeers([found])[0].device_id, found.device_id, '界面需要识别并排除本机广播');
     assert.equal(DISCOVERY_PORT, 47823);
   } finally {
     announcer.stop();
