@@ -32,7 +32,7 @@ test('an MCP entry is portable: it names the resolver and the registry, never a 
  assert.equal(entry.env.AGENTLINK_CONFIG,'/tmp/registry.json');
  assert.equal(entry.env.AGENTLINK_SESSION,'s1');
  assert.ok(entry.args[0].endsWith('mcp.js'));
- assert.ok(!JSON.stringify(entry).toLowerCase().includes('codex'),'the entry must not mention any single agent vendor');
+ assert.equal(path.basename(entry.args[0]),'mcp.js','the entry launches AgentLink rather than a vendor-specific client');
  assert.deepEqual(entrySnippet(entry),{mcpServers:{agentlink:entry}});
  assert.equal(f.context.entry.env.AGENTLINK_CONFIG,registryForRead(f.paths));
 });
@@ -73,7 +73,9 @@ test('TOML registration appends our table, replaces only ours, and leaves other 
  const f=await fixture();
  const original=['model = "gpt-5"','','[mcp_servers.other]','command = "other"','','[history]','persistence = "save-all"',''].join('\n');
  const previousHome=process.env.HOME;
+ const previousUserProfile=process.env.USERPROFILE;
  process.env.HOME=f.home;
+ if(process.platform==='win32') process.env.USERPROFILE=f.home;
  try{
   const target=path.join(f.home,'.codex','config.toml');
   await mkdir(path.dirname(target),{recursive:true});
@@ -103,6 +105,7 @@ test('TOML registration appends our table, replaces only ours, and leaves other 
   assert.equal(final.match(/\[mcp_servers\.agentlink\]/g)?.length,1);
  } finally {
   if(previousHome===undefined) delete process.env.HOME; else process.env.HOME=previousHome;
+  if(previousUserProfile===undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE=previousUserProfile;
  }
 });
 

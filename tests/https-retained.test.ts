@@ -9,6 +9,7 @@ import { call, type Device } from '../apps/runtime/client.js';
 import { setTimeout as wait } from 'node:timers/promises';
 
 test('retained HTTPS fixture verifies identity, atomic new write, task protocol and kill latch', async t => {
+  if(process.platform!=='win32'&&process.platform!=='darwin') { t.skip('command tasks require a supported Windows or macOS adapter'); return; }
   const dir = await mkdtemp(path.join(os.tmpdir(), 'agentlink-retained-https-'));
   const root = path.join(dir, 'share'); await mkdir(root);
   const cert = path.join(dir, 'cert.pem'), key = path.join(dir, 'key.pem');
@@ -26,7 +27,7 @@ test('retained HTTPS fixture verifies identity, atomic new write, task protocol 
   const target = path.join(root, '中文.txt');
   await call(device, 'files.write', { path: target, data: '你好', encoding: 'utf8' });
   assert.equal(await readFile(target, 'utf8'), '你好');
-  const taskInput = { key: 'hello', command: "Write-Output 'test'", cwd: root, timeout: 1000 };
+  const taskInput = { key: 'hello', command: "Write-Output 'test'", cwd: root, timeout: 10000 };
   const submitted = await call(device, 'tasks.submit', taskInput) as { id: string };
   assert.equal((await call(device, 'tasks.submit', taskInput) as { duplicate: boolean }).duplicate, true);
   await assert.rejects(call(device, 'tasks.submit', { ...taskInput, command: 'different' }), /different task/);

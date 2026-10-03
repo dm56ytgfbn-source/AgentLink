@@ -74,7 +74,7 @@ test('discovery finds releases, login agents and registrations, and flags the st
  const viewerPlan=buildInstallPlan(discovery,{release:path.join(f.home,'releases','x')});
  assert.equal(viewerPlan.some(action=>action.id.includes('windows-viewer')),false,'a non-supervisor agent must never be rewritten');
  assert.equal(discovery.plugins.length,1);
- assert.equal(discovery.plugins[0].runtime_root,f.oldRelease);
+ assert.equal(discovery.plugins[0].runtime_root,f.oldRelease.replaceAll('\\','/'));
  assert.equal(discovery.registry.devices,1);
  const text=summarizeDiscovery(discovery);
  assert.ok(text.includes('0.1.0-rc.1'));

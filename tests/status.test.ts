@@ -25,7 +25,7 @@ test('a working mount is found even when it lives at a legacy path',()=>{
  const home='/Users/someone/Library/Application Support/AgentLink';
  const paths=resolvePaths({home,sourceRoot:'/tmp/release'});
  const candidates=mountPathCandidates(paths,'RTX-PC',{AGENTLINK_MOUNT:undefined} as NodeJS.ProcessEnv);
- assert.deepEqual(candidates,[path.join(home,'mount','RTX-PC'),path.join(os.homedir(),'AgentLink','RTX-PC')]);
+ assert.deepEqual(candidates,[path.join(paths.home,'mount','RTX-PC'),path.join(os.homedir(),'AgentLink','RTX-PC')]);
  // The real mount table references the legacy home path, which is the second candidate.
  const legacyTable='http://127.0.0.1:7480/ on '+path.join(os.homedir(),'AgentLink','RTX-PC')+' (webdav, nodev, noexec, nosuid, mounted by someone)';
  assert.deepEqual(findMount(legacyTable,candidates,7480),{path:path.join(os.homedir(),'AgentLink','RTX-PC'),state:'agentlink'});

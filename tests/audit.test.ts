@@ -49,7 +49,7 @@ test('health probes do not flood the log, and real operations are recorded',asyn
  assert.equal(typeof lines[0].detail.command.sha256,'string');
  assert.ok(!JSON.stringify(lines).includes('B'.repeat(40)),'the raw command must not be written');
  const mode=(await import('node:fs/promises')).stat(file);
- assert.ok(((await mode).mode & 0o777) === 0o600);
+ if(process.platform!=='win32') assert.ok(((await mode).mode & 0o777) === 0o600);
 });
 
 test('a growing log is sealed into segments and nothing is ever deleted',async()=>{

@@ -39,7 +39,7 @@ test('a pairing bundle installs on a computer with a different home directory',a
   assert.ok(saved.ca.startsWith(f.target.certDir),'the certificate must be written under THIS machine home, not the exporter');
   assert.equal(saved.ca.includes('source-home'),false);
   assert.equal(existsSync(saved.ca),true);
-  assert.equal((await stat(saved.ca)).mode & 0o777,0o600);
+  if(process.platform!=='win32') assert.equal((await stat(saved.ca)).mode & 0o777,0o600);
   assert.equal(await resolveToken(saved),'a'.repeat(64),'the imported credential still authenticates');
   const devices=await new ComputerContext(f.target.registry,'test').devices();
   assert.equal(devices.length,1);

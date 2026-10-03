@@ -51,9 +51,10 @@ export function parseLaunchAgentPlist(text:string, file:string):{ label:string; 
 }
 
 export function parsePluginLauncher(text:string) {
-  const mcp = text.match(/"([^"]*\/dist\/apps\/runtime\/mcp\.js)"/);
+  const mcp = [...text.matchAll(/"([^"]+)"/g)]
+    .map(match => match[1]).find(candidate => runtimeRootFromMcpPath(candidate) !== null);
   const config = text.match(/AGENTLINK_CONFIG[:=]"?'?\$?\{?[A-Z_]*:?-?([^"\n' }]+)/);
-  return { runtime_root: mcp ? runtimeRootFromMcpPath(mcp[1]) : null,
+  return { runtime_root: mcp ? runtimeRootFromMcpPath(mcp) : null,
     config: config && config[1].startsWith('/') ? config[1] : null };
 }
 
@@ -147,6 +148,7 @@ export function canonicalReleasePath(discovery:Discovery, now:Date, suffix?:stri
 export function buildInstallPlan(discovery:Discovery, options:{ release?:string; launchAgent?:boolean; plugin?:boolean } = {}):InstallAction[] {
   const actions:InstallAction[] = [];
   const release = options.release ?? null;
+  const samePath = (left:string,right:string) => path.resolve(left).replaceAll('\\','/') === path.resolve(right).replaceAll('\\','/');
   if (release) {
     const exists = existsSync(mcpPath(release));
     actions.push({ id:'release', kind:'create-release', file:release, will_change:!exists,
@@ -155,7 +157,7 @@ export function buildInstallPlan(discovery:Discovery, options:{ release?:string;
   }
   if (options.launchAgent !== false) {
     for (const agent of discovery.launch_agents.filter(candidate => candidate.managed)) {
-      const willChange = agent.runtime_root === null || release === null || path.resolve(agent.runtime_root) !== path.resolve(release);
+      const willChange = agent.runtime_root === null || release === null || !samePath(agent.runtime_root,release);
       actions.push({ id:'agent:' + agent.label, kind:'update-launch-agent', file:agent.file, will_change:willChange,
         description: willChange ? 'Point ' + agent.label + ' at the canonical release (current: ' + (agent.runtime_root ?? 'unknown') + ')' : agent.label + ' already points at the canonical release',
         detail:{ label:agent.label, current:agent.runtime_root, target:release,
@@ -165,7 +167,7 @@ export function buildInstallPlan(discovery:Discovery, options:{ release?:string;
   if (options.plugin !== false) {
     for (const plugin of discovery.plugins) {
       const name = path.basename(path.dirname(path.dirname(plugin.file)));
-      const willChange = plugin.runtime_root === null || release === null || path.resolve(plugin.runtime_root) !== path.resolve(release);
+      const willChange = plugin.runtime_root === null || release === null || !samePath(plugin.runtime_root,release);
       actions.push({ id:'plugin:' + name, kind:'update-plugin', file:plugin.file, will_change:willChange,
         description: willChange ? 'Point the ' + name + ' agent registration at the canonical release (current: ' + (plugin.runtime_root ?? 'unknown') + ')' : 'Agent registration for ' + name + ' is already canonical',
         detail:{ current:plugin.runtime_root, target:release,
@@ -261,7 +263,7 @@ export async function applyInstallPlan(discovery:Discovery, plan:InstallAction[]
       let updated = original
         .replace(/\$\{AGENTLINK_CONFIG:-[^}]*\}/g, '${AGENTLINK_CONFIG:-' + detail.config + '}')
         .replace(/AGENTLINK_CONFIG="(?!\$\{)[^"]*"/g, 'AGENTLINK_CONFIG="' + detail.config + '"')
-        .replace(/"[^"]*\/dist\/apps\/runtime\/mcp\.js"/g, '"' + mcpPath(detail.target) + '"')
+        .replace(/"[^"]*[\\/]dist[\\/]apps[\\/]runtime[\\/]mcp\.js"/g, '"' + mcpPath(detail.target) + '"')
         .replace(/(exec\s+)\S*node\S*/m, '$1' + discovery.node);
       if (updated === original) { result.skipped.push({ id:action.id, reason:'launcher did not reference the expected runtime path' }); continue; }
       const info = await stat(file);

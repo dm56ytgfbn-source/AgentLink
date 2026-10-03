@@ -43,7 +43,7 @@ test('a computer prepares its own identity without hand editing', async t => {
   const config = JSON.parse(await readFile(result.config, 'utf8'));
   assert.equal(config.port, 18999);
   assert.deepEqual(config.allowed_roots, [path.join(dir, 'share')]);
-  assert.ok(config.capabilities.includes('shell'));
+  assert.equal(config.capabilities.includes('shell'),process.platform==='darwin'||process.platform==='win32');
   // Running it again must not rotate the identity.
   const again = await setupNode({ directory: path.join(dir, 'node'), roots: [path.join(dir, 'share')] });
   assert.equal(again.created, false);
