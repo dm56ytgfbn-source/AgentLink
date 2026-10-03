@@ -4,7 +4,7 @@
 
 AgentLink connects paired macOS and Windows computers on a local network so an AI agent can use a selected computer's files, shell, and applications through MCP. The agent connects to its local AgentLink runtime; each agent session chooses its own target computer.
 
-**Status: 0.1.0-rc.3 preview.** This is an experimental source release, not a production-ready installer. The cross-platform peer core has been tested, including a live Windows-to-Mac command and file transfer. The one-app experience and three- or four-computer keyboard/mouse layout still need broader validation. See the [implementation record](docs/PEER-ARCHITECTURE-2026-10-02.md).
+**Status: 0.1.0-rc.3 preview.** This is an experimental release with unsigned Mac and Windows installer previews, not a production-ready public installer. The cross-platform peer core has been tested, including a live Windows-to-Mac command and file transfer. The one-app experience and three- or four-computer keyboard/mouse layout still need broader validation. See the [implementation record](docs/PEER-ARCHITECTURE-2026-10-02.md).
 
 ## What works today
 
@@ -30,7 +30,7 @@ python3 scripts/test-package-source.py
 
 ## Installer previews
 
-`npm run release` builds a self-contained Mac disk image on macOS or a Windows x64 setup EXE on Windows. The build machine needs Node.js; people installing the resulting app do not. These artifacts are currently unsigned development previews and are not yet suitable for a public stable release. See [installer build and release gates](docs/INSTALLERS.md).
+`npm run release` builds a self-contained Mac disk image on macOS or a Windows x64 setup EXE on Windows. The build machine needs Node.js; people installing the resulting app do not. Download the latest unsigned build from [Installer preview workflow](https://github.com/dm56ytgfbn-source/AgentLink/actions/workflows/installer-preview.yml) while signed in to GitHub. These artifacts are development previews and are not yet suitable for a public stable release. See [installer instructions and release gates](docs/INSTALLERS.md).
 
 Follow [setup instructions](docs/SETUP.md) to create private configuration and pair computers. No working tokens, private keys, or machine-specific pairing files belong in this repository. Use the [MCP configuration example](examples/mcp-config.example.json) for your local agent.
 
@@ -39,6 +39,6 @@ Follow [setup instructions](docs/SETUP.md) to create private configuration and p
 - The 3–4-device keyboard/mouse topology and complete Mac↔Mac / Windows↔Windows acceptance matrix are future work.
 - Recovery after reboot, changing networks, and upgrades needs more clean-machine testing.
 - GUI tools do not bypass a lock screen or UAC. File version checks are scoped to AgentLink operations, not every program on a computer.
-- Signed and packaged preview builds are development artifacts; platform distribution and end-user installation have not been fully validated.
+- Packaged preview builds are unsigned development artifacts; platform distribution and end-user installation have not been fully validated.
 
 Read [SECURITY.md](SECURITY.md) before exposing a node to other devices. AgentLink source is licensed under [MIT](LICENSE); third-party dependencies retain their own licenses.

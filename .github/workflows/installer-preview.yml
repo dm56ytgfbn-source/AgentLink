@@ -3,11 +3,20 @@ on:
   workflow_dispatch:
   push:
     paths:
+      - 'apps/**'
+      - 'adapters/**'
+      - 'packages/**'
+      - 'mac/**'
+      - 'windows/**'
+      - 'native/**'
+      - 'agents/**'
       - '.github/workflows/installer-preview.yml'
       - 'packaging/**'
       - 'scripts/package-*'
       - 'scripts/test-windows-installer.ps1'
       - 'scripts/release.mjs'
+      - 'scripts/build-*'
+      - 'scripts/windows-*'
       - 'package.json'
       - 'package-lock.json'
 permissions:
