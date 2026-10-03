@@ -6,6 +6,7 @@ on:
       - '.github/workflows/installer-preview.yml'
       - 'packaging/**'
       - 'scripts/package-*'
+      - 'scripts/test-windows-installer.ps1'
       - 'scripts/release.mjs'
       - 'package.json'
       - 'package-lock.json'
@@ -49,6 +50,9 @@ jobs:
         shell: pwsh
         run: choco install innosetup --yes --no-progress
       - run: npm run release
+      - name: Install and upgrade Windows preview in the runner
+        shell: pwsh
+        run: ./scripts/test-windows-installer.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: AgentLink-windows-unsigned-preview

@@ -3,6 +3,7 @@
 The source repository can now build a self-contained Mac application disk image and a Windows x64 setup program. These are **unsigned preview artifacts for testing**, not a public stable release. The GitHub Actions workflow `Installer preview (unsigned)` runs on packaging changes or manually, builds each installer on its own operating system, and retains the binaries as workflow artifacts; it does not publish a GitHub Release.
 
 The installer workflow runs the full retained suite on Mac and the Windows packaging/input-sharing checks on Windows. The separate `Source validation` workflow continues to show outstanding cross-platform test failures; a successful preview build does not mean the full acceptance matrix is green.
+The Windows job also installs the EXE into a new runner directory, checks the bundled app and Node runtime, installs the same version again, and confirms a private pairing-directory marker is unchanged.
 
 ## Build from a clean checkout
 
