@@ -143,6 +143,7 @@ if (process.platform === 'win32') {
   throw Error('build/node-win-x64.zip is required for a self-contained Windows package');
 }
 await copy('scripts/windows-install-startup.ps1', 'runtime/scripts/windows-install-startup.ps1');
+await copy('scripts/windows-configure-firewall.ps1', 'runtime/scripts/windows-configure-firewall.ps1');
 await copy('scripts/windows-launch.mjs', 'runtime/scripts/windows-launch.mjs');
 // Keyboard/mouse sharing is the one feature whose native half must be compiled ON Windows,
 // so both the source and the build script have to travel with the package.

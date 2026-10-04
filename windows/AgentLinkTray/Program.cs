@@ -720,7 +720,7 @@ sealed class TrayApp : ApplicationContext
                             if (peer.Open && peers.SelectedIndex < 0) peers.SelectedItem = peer;
                         }
                         state.Text = error != null ? "搜索失败，可输入地址连接。" : peers.Items.Count == 0
-                            ? "没有发现电脑，可输入地址连接。" : "找到 " + peers.Items.Count + " 台电脑。";
+                            ? "未发现电脑。可输入对方 IP；检查局域网防火墙。" : "找到 " + peers.Items.Count + " 台电脑。";
                     }); } catch { }
                 });
             };

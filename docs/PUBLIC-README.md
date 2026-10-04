@@ -4,7 +4,7 @@
 
 AgentLink connects paired macOS and Windows computers on a local network so an AI agent can use a selected computer's files, shell, and applications through MCP. The agent connects to its local AgentLink runtime; each agent session chooses its own target computer.
 
-**Status: 0.1.0-rc.4 preview.** This is an experimental release with unsigned Mac and Windows installer previews, not a production-ready public installer. The cross-platform peer core has been tested, including a live Windows-to-Mac command and file transfer. The one-app experience and three- or four-computer keyboard/mouse layout still need broader validation. See the [implementation record](docs/PEER-ARCHITECTURE-2026-10-02.md).
+**Status: 0.1.0-rc.5 preview.** This is an experimental release with unsigned Mac and Windows installer previews, not a production-ready public installer. The cross-platform peer core has been tested, including a live Windows-to-Mac command and file transfer. The one-app experience and three- or four-computer keyboard/mouse layout still need broader validation. See the [implementation record](docs/PEER-ARCHITECTURE-2026-10-02.md).
 
 ## What works today
 

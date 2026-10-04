@@ -15,7 +15,7 @@ AppPublisher=AgentLink contributors
 DefaultDirName={autopf}\AgentLink
 DefaultGroupName=AgentLink
 UninstallDisplayIcon={app}\AgentLink.exe
-PrivilegesRequired=lowest
+PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 DisableProgramGroupPage=yes
@@ -33,4 +33,5 @@ Source: "{#PayloadDir}\使用说明.txt"; DestDir: "{app}"; Flags: ignoreversion
 Name: "{autoprograms}\AgentLink"; Filename: "{app}\AgentLink.exe"
 
 [Run]
-Filename: "{app}\AgentLink.exe"; Description: "打开 AgentLink"; Flags: nowait postinstall skipifsilent
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\runtime\scripts\windows-configure-firewall.ps1"" -NodePath ""{app}\runtime\node\node.exe"""; Flags: runhidden waituntilterminated
+Filename: "{app}\AgentLink.exe"; Description: "打开 AgentLink"; Flags: nowait postinstall skipifsilent runasoriginaluser
