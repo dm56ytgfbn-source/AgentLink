@@ -17,7 +17,7 @@ export interface PairResult {
 }
 
 export function discoverComputers(options: { timeoutMs?: number } = {}): Promise<Announcement[]> {
-  return browse({ timeoutMs: options.timeoutMs ?? 1500 });
+  return browse({ timeoutMs: options.timeoutMs ?? 4500 });
 }
 
 // Broadcast is not always usable: a computer carrying a virtual adapter (VMware, VirtualBox,

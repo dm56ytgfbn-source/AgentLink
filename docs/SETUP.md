@@ -1,4 +1,6 @@
-# Installation and pairing
+# Advanced manual deployment (developer / administrator)
+
+> 普通用户请先阅读[新用户指南](QUICKSTART.zh-CN.md)。下文是高级手动部署，不是安装包使用步骤；安装包会处理自带运行时与初始配置。
 
 ## Windows Node
 
@@ -61,7 +63,7 @@ After learning the new address, run:
 node dist/apps/runtime/cli.js computer reconnect YOUR-WINDOWS-NAME https://192.0.2.20:7443
 ```
 
-The command verifies the configured TLS identity and device ID before saving a new route. It preserves credentials/certificate settings and writes a private backup. The running file bridge and Mac supervisor read route updates; reopen the native viewer after changing its route. Automatic discovery of a new IP is still not implemented. Legacy pairings without a stable certificate name may first require certificate rotation.
+The command verifies the configured TLS identity and device ID before saving a new route. It preserves credentials/certificate settings and writes a private backup. The running file bridge and Mac supervisor read route updates; reopen the native viewer after changing its route. LAN discovery is implemented, but automatic recovery is not guaranteed on every network. Legacy pairings without a stable certificate name may first require certificate rotation.
 
 ## Login supervision
 

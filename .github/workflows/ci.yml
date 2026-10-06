@@ -22,6 +22,8 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run test:retained
       - run: npm run build:windows-node
+      - name: Verify release asset integrity and provenance
+        run: node --test scripts/test-release-assets.mjs
       - name: Verify publication boundaries (fixtures retained)
         run: python scripts/test-package-source.py
       - name: Build native viewer

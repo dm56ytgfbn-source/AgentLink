@@ -245,8 +245,12 @@ static class Runtime
             {
                 Dictionary<string, object> info = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(reader.ReadToEnd());
                 if (Convert.ToString(info["device_id"]) != Convert.ToString(config["device_id"])) throw new Exception("服务身份与本机配置不一致");
-                result.Online = true;
                 result.Version = info.ContainsKey("version") ? Convert.ToString(info["version"]) : "";
+                Dictionary<string, object> package = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(Path.Combine(root, "package.json")));
+                string appVersion = Convert.ToString(package["version"]);
+                if (result.Version != appVersion)
+                    throw new Exception("窗口版本 " + appVersion + "，后台版本 " + result.Version + "。请退出旧版 AgentLink 后重新打开安装版；配对信息会保留。");
+                result.Online = true;
                 result.PairingOpen = info.ContainsKey("pairing_open") && Convert.ToBoolean(info["pairing_open"]);
                 result.Message = "已就绪，可供已配对的 Agent 使用。";
             }
@@ -442,7 +446,7 @@ sealed class TrayApp : ApplicationContext
         text.AppendLine("电脑：" + status.Name);
         if (status.Online)
         {
-            text.AppendLine("已连接其他电脑：" + status.TargetNames.Count + " 台" + (status.TargetNames.Count > 0 ? "（" + String.Join("、", status.TargetNames.ToArray()) + "）" : ""));
+            text.AppendLine("已配对其他电脑：" + status.TargetNames.Count + " 台" + (status.TargetNames.Count > 0 ? "（" + String.Join("、", status.TargetNames.ToArray()) + "）" : ""));
             text.AppendLine("已保存配对授权：" + status.ClientCount + " 条（" + status.ClientSourceCount + " 个来源，不代表在线数）");
             text.AppendLine("新电脑连接：" + (status.PairingOpen ? "已开放，10 分钟后自动关闭" : "需在此处允许"));
             text.AppendLine("键鼠共享：" + (status.InputShareEnabled && status.InputShareHelperAvailable ? "Windows 端已就绪" : "Windows 端未就绪"));
@@ -456,9 +460,9 @@ sealed class TrayApp : ApplicationContext
     void UpdateConsole(LocalStatus status)
     {
         if (heading == null || heading.IsDisposed) return;
-        heading.Text = status.Online ? "这台电脑已就绪" : "正在启动连接";
+        heading.Text = status.Online ? "这台电脑已就绪" : "连接需要检查";
         statusDetail.Text = status.Online
-            ? "本机服务已就绪 · 已连接其他电脑 " + status.TargetNames.Count + " 台"
+            ? "本机服务已就绪 · 已配对其他电脑 " + status.TargetNames.Count + " 台"
             : (status.Message ?? "正在检查本机服务…");
         string placement = String.IsNullOrEmpty(status.ScreenPosition) ? "屏幕位置跟随 Mac 设置" : "Mac 在 Windows 的" + PositionName(status.ScreenPosition);
         sharingDetail.Text = (status.InputShareEnabled && status.InputShareHelperAvailable ? "已就绪 · " : "尚需配置键鼠共享 · ") + placement;
@@ -474,8 +478,8 @@ sealed class TrayApp : ApplicationContext
             console.ClientSize = new Size(700, (technicalPanel.Visible ? technicalPanel.Bottom : moreButton.Bottom) + 25);
         }
         pairedDetail.Text = status.TargetNames.Count == 0
-            ? "还没有连接其他电脑。点击“添加电脑”开始配对。"
-            : "已连接 " + status.TargetNames.Count + " 台：" + String.Join("、", status.TargetNames.ToArray());
+            ? "还没有配对其他电脑。点击“添加电脑”开始配对。"
+            : "已配对 " + status.TargetNames.Count + " 台：" + String.Join("、", status.TargetNames.ToArray());
         if (consoleText != null && !consoleText.IsDisposed) consoleText.Text = Describe(status);
     }
 

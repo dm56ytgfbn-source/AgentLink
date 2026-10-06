@@ -313,7 +313,7 @@ export async function startUi(options: UiOptions = {}): Promise<UiHandle> {
       }
       if (request.url === '/api/discover') {
         // Broadcast based, so this takes as long as the listening window it opens.
-        const peers = await discoverComputers({ timeoutMs: 2500 });
+        const peers = await discoverComputers({ timeoutMs: 4500 });
         response.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
         response.end(JSON.stringify(peers.map(peer => ({ name: peer.name, host: peer.host, port: peer.port,
           os: peer.os, pairing_open: peer.pairing_open }))));

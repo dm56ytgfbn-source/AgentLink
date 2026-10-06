@@ -131,7 +131,7 @@ try {
     } else if (sub === 'discover') {
       const { discoverComputers } = await import('./pair-auto.js');
       const { describePeers } = await import('../../packages/discovery/index.js');
-      const peers = await discoverComputers({ timeoutMs: flagValue('--timeout') ? Number(flagValue('--timeout')) : 2000 });
+      const peers = await discoverComputers({ timeoutMs: flagValue('--timeout') ? Number(flagValue('--timeout')) : 4500 });
       console.log(JSON.stringify(peers.length ? describePeers(peers) : { peers: [], note: '没有发现其他电脑（确认两台在同一局域网、且对方的 AgentLink 已启动）' }, null, 2));
     } else if (sub === 'auto') {
       const { discoverComputers, describeHost, pairWith } = await import('./pair-auto.js');
@@ -145,7 +145,7 @@ try {
         if (!target.pairing_open) throw new Error('对方当前不允许配对：请在' + target.name + '上重新运行「让这台电脑可被使用」，' +
           '10 分钟内完成配对');
       } else {
-        const peers = await discoverComputers({ timeoutMs: flagValue('--timeout') ? Number(flagValue('--timeout')) : 2000 });
+        const peers = await discoverComputers({ timeoutMs: flagValue('--timeout') ? Number(flagValue('--timeout')) : 4500 });
         const open = peers.filter(peer => peer.pairing_open);
         if (!open.length) throw new Error(peers.length
           ? '发现 ' + peers.length + ' 台电脑，但都不允许配对：请在对方电脑上打开"允许新电脑配对"'

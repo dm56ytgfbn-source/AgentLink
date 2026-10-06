@@ -1,6 +1,11 @@
 name: Installer preview (unsigned)
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Optional version tag, e.g. v0.1.0-rc.6; prepares a draft Release with installers'
+        required: false
+        type: string
   push:
     paths:
       - 'apps/**'
@@ -15,6 +20,8 @@ on:
       - 'scripts/package-*'
       - 'scripts/test-windows-installer.ps1'
       - 'scripts/release.mjs'
+      - 'scripts/prepare-release-assets.mjs'
+      - 'docs/releases/**'
       - 'scripts/build-*'
       - 'scripts/windows-*'
       - 'package.json'
@@ -69,3 +76,41 @@ jobs:
             build/releases/**/AgentLink-Setup-*.exe
             build/releases/**/RELEASE.json
           if-no-files-found: error
+
+  release-draft:
+    if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+    needs: [mac, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check release version and notes
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          test "$GITHUB_REF" = 'refs/heads/main'
+          test "$RELEASE_TAG" = "v$(node -p "require('./package.json').version")"
+          test -f "docs/releases/$RELEASE_TAG.md"
+      - uses: actions/download-artifact@v4
+        with:
+          name: AgentLink-mac-unsigned-preview
+          path: build/release-input/mac
+      - uses: actions/download-artifact@v4
+        with:
+          name: AgentLink-windows-unsigned-preview
+          path: build/release-input/windows
+      - name: Verify installers and prepare public assets
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: node scripts/prepare-release-assets.mjs build/release-input/mac build/release-input/windows build/release-assets "$RELEASE_TAG"
+      - name: Create reviewable draft Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          gh release create "$RELEASE_TAG" build/release-assets/* \
+            --target "$GITHUB_SHA" \
+            --title "AgentLink $RELEASE_TAG (unsigned preview)" \
+            --notes-file "docs/releases/$RELEASE_TAG.md" \
+            --draft --prerelease

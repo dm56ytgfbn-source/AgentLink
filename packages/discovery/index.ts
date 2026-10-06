@@ -66,13 +66,16 @@ export function broadcastTargets(): string[] {
 
 export function startAnnouncer(build: () => Announcement, options: AnnouncerOptions = {}) {
   const port = options.port ?? DISCOVERY_PORT;
-  const targets = options.target ? [options.target] : broadcastTargets();
   const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
   let timer: NodeJS.Timeout | undefined;
+  let stopped = false;
   socket.on('error', () => { /* a network without broadcast must not crash the product */ });
   socket.bind(() => {
+    if (stopped) { socket.close(); return; }
     try { socket.setBroadcast(true); } catch { /* loopback-only testing */ }
     const send = () => {
+      // Refresh routes after Wi-Fi, DHCP or VPN changes without restarting the service.
+      const targets = options.target ? [options.target] : broadcastTargets();
       const message = Buffer.from(JSON.stringify(build()));
       for (const target of targets) socket.send(message, port, target, () => { /* ignore unreachable networks */ });
     };
@@ -80,29 +83,38 @@ export function startAnnouncer(build: () => Announcement, options: AnnouncerOpti
     timer = setInterval(send, options.intervalMs ?? 2000);
     timer.unref?.();
   });
-  return { stop() { if (timer) clearInterval(timer); try { socket.close(); } catch { /* already closed */ } } };
+  return { stop() { stopped = true; if (timer) clearInterval(timer); try { socket.close(); } catch { /* already closed */ } } };
 }
 
-export interface BrowseOptions { port?: number; timeoutMs?: number; target?: string; bindAddress?: string }
+export interface BrowseOptions { port?: number; timeoutMs?: number; target?: string; bindAddress?: string; ownDeviceId?: string }
 
 // Collects announcements for a short window. Own broadcasts are ignored so a computer never
 // lists itself as a pairable peer.
 export function browse(options: BrowseOptions = {}): Promise<Announcement[]> {
   const port = options.port ?? DISCOVERY_PORT;
-  const timeoutMs = options.timeoutMs ?? 1500;
+  const timeoutMs = options.timeoutMs ?? 4500;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 30000) {
+    return Promise.reject(new Error('发现等待时间必须在 1–30000 毫秒内'));
+  }
   const found = new Map<string, Announcement>();
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
-    const finish = () => {
+    let finished = false;
+    const finish = (error?: Error) => {
+      if (finished) return;
+      finished = true;
       clearTimeout(timer);
       try { socket.close(); } catch { /* already closed */ }
-      resolve([...found.values()]);
+      if (error) reject(new Error('局域网发现不可用（UDP ' + port + '）：' + error.message + '。可尝试输入对方 IP 连接；请检查网络权限或端口占用。', { cause: error }));
+      else resolve([...found.values()]);
     };
     const timer = setTimeout(finish, timeoutMs);
     socket.on('message', (data, remote) => {
       try {
+        if (data.length > 8192) return;
         const value: unknown = JSON.parse(data.toString('utf8'));
         if (!isAnnouncement(value)) return;
+        if (value.device_id === options.ownDeviceId || localAddresses().includes(remote.address)) return;
         // Prefer the address the packet actually came from: it is the one that routes back.
         found.set(value.device_id, { ...value, host: remote.address });
       } catch { /* ignore foreign traffic on this port */ }

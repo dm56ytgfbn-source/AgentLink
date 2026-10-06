@@ -1,3 +1,5 @@
+> 历史验收记录：保留各日期原始结论，不代表当前产品状态。当前版本、公开下载和待验收事项以 [PROJECT-STATUS.md](PROJECT-STATUS.md) 为准。下文 rc.1 的“未实现发现 / 未运行 CI”仅适用于当时。
+
 # 0.1.0-rc.1 acceptance record
 
 Updated 2026-09-15 after live cutover. This is a personal LAN release candidate, not a stable production release.

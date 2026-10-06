@@ -47,3 +47,42 @@ test('广播能被打包并重新收到（声明的地址是数据包真正来�
     announcer.stop();
   }
 });
+
+const announcement = (device_id = 'peer') => ({ v: 1, kind: 'agentlink' as const, device_id,
+  name: 'test', os: 'test', hostname: 'test', port: 7443, host: 'example.invalid',
+  fingerprint: 'AA:BB', pairing_open: true, version: 'test' });
+
+test('发现按设备身份排除本机并保留其他电脑', async () => {
+  const own = startAnnouncer(() => announcement('self'), { target: '127.0.0.1', port: 47992, intervalMs: 30 });
+  const peer = startAnnouncer(() => announcement('other'), { target: '127.0.0.1', port: 47992, intervalMs: 30 });
+  try {
+    const peers = await browse({ port: 47992, bindAddress: '127.0.0.1', timeoutMs: 200, ownDeviceId: 'self' });
+    assert.deepEqual(peers.map(peer => peer.device_id), ['other']);
+  } finally { own.stop(); peer.stop(); }
+});
+
+test('无效等待时间与绑定错误不会伪装成未发现设备', async () => {
+  await assert.rejects(browse({ timeoutMs: NaN }), /等待时间/);
+  await assert.rejects(browse({ timeoutMs: -1 }), /等待时间/);
+  await assert.rejects(browse({ port: 47993, bindAddress: '192.0.2.254', timeoutMs: 300 }), /局域网发现不可用.*UDP 47993/);
+});
+
+test('广播每轮重读网卡，换网后不需要重启', async context => {
+  let calls = 0;
+  const original = os.networkInterfaces;
+  context.mock.method(os, 'networkInterfaces', () => { calls++; return original(); });
+  const announcer = startAnnouncer(() => announcement(), { port: 47994, intervalMs: 25 });
+  try {
+    await new Promise(resolve => setTimeout(resolve, 150));
+    assert.ok(calls >= 2, '只在启动时读取网卡');
+  } finally { announcer.stop(); }
+});
+
+test('网卡地址匹配的本机广播不会出现在列表', async context => {
+  context.mock.method(os, 'networkInterfaces', () => ({ test: [{ address: '127.0.0.1', family: 'IPv4', internal: false,
+    netmask: '255.0.0.0', mac: '00:00:00:00:00:00', cidr: '127.0.0.1/8' }] }));
+  const announcer = startAnnouncer(() => announcement(), { target: '127.0.0.1', port: 47995, intervalMs: 25 });
+  try {
+    assert.deepEqual(await browse({ port: 47995, bindAddress: '127.0.0.1', timeoutMs: 150 }), []);
+  } finally { announcer.stop(); }
+});

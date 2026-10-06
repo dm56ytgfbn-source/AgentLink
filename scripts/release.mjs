@@ -26,7 +26,9 @@ if(process.platform==='darwin'){
   artifact=path.join(out,`AgentLink-Setup-${version}-windows-x64.exe`);
 }else throw Error('Installer builds require macOS or Windows');
 const data=await readFile(artifact);
-await writeFile(path.join(out,'RELEASE.json'),JSON.stringify({version,platform:process.platform,
+const sourceCommit = process.env.GITHUB_SHA || execFileSync('git', ['rev-parse', 'HEAD'], {cwd:root,encoding:'utf8'}).trim();
+const sourceDirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], {cwd:root,encoding:'utf8'}).trim().length > 0;
+await writeFile(path.join(out,'RELEASE.json'),JSON.stringify({version,source_commit:sourceCommit,source_dirty:sourceDirty,platform:process.platform,
   architecture:process.arch,created_at:new Date().toISOString(),artifact:path.basename(artifact),
   bytes:(await stat(artifact)).size,sha256:createHash('sha256').update(data).digest('hex'),
   public_release_ready:false,
