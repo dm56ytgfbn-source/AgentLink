@@ -27,3 +27,11 @@
 - 主构建与 Windows 目标构建通过；发现/界面/Windows 打包的 10 项定向测试通过；发布完整性与来源拒绝测试 2 项通过；源码发布边界检查 5 项通过。
 - retained 全套 114 项中 113 项通过；Mac 钥匙串集成测试创建测试钥匙串时遭当前环境拒绝（`SecKeychainCreate`），需云端干净环境复验，不记作全通过。
 - 当前已配对 Windows 在本轮检查中均不可达；这轮没有完成 Windows 实机升级、内存或双向输入测试。
+
+## 云端验收更新
+
+- rc.6 修复提交：`f027027a3aadd463285ea8ce527f54da7f9dde6c`。
+- [Source validation 37438592365](https://github.com/dm56ytgfbn-source/AgentLink/actions/runs/37438592365)：Windows、macOS、Linux 全部通过；Mac 钥匙串集成在云端通过。
+- [Installer preview 37438592405](https://github.com/dm56ytgfbn-source/AgentLink/actions/runs/37438592405)：Mac / Windows 安装器构建通过，Windows 干净 runner 的安装、再次安装升级及私有目录保留检查通过。rc.6 仍只是临时构建产物，尚未公开发布。
+- rc.5 的 EXE、DMG 与 SHA256SUMS 已公开发布；两条安装包链接匿名 HTTP 请求均返回 200，GitHub 的资产哈希与原始构建一致。
+- B 阶段尚未完成：云端安装测试不替代真实两台电脑的网络、重启与旧版本冲突验收。
