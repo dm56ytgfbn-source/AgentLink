@@ -19,3 +19,26 @@ async function check(reason){
  console.log(`PASS: local-only native helper recovered from ${reason}`);
 }
 await check('controller-exited');await check('controller-timeout');
+
+// Incoming and outgoing sessions must never own the same physical hooks at once.
+if(process.platform==='win32'){
+ const first=spawn(executable,[],{stdio:['pipe','pipe','pipe']});
+ let ready=false;
+ const heartbeat=setInterval(()=>{if(!first.stdin.destroyed)first.stdin.write('{"t":"ping"}\n');},250);
+ const deadline=setTimeout(()=>first.kill(),4500);
+ try{
+  await new Promise((resolve,reject)=>{
+   let buffer='';first.stdout.on('data',part=>{buffer+=part;let end;while((end=buffer.indexOf('\n'))>=0){const m=JSON.parse(buffer.slice(0,end));buffer=buffer.slice(end+1);if(m.t==='ready'){ready=true;resolve();}}});
+   first.once('error',reject);first.once('exit',()=>{if(!ready)reject(Error('First helper exited before ready'));});
+  });
+  const second=spawn(executable,[],{stdio:['pipe','pipe','pipe']});
+  let result='';second.stdout.on('data',b=>result+=b);
+  const secondDeadline=setTimeout(()=>second.kill(),3000);
+  try{
+   const code=await new Promise((resolve,reject)=>{second.once('exit',resolve);second.once('error',reject);});
+   assert.equal(code,2);assert.match(result,/input-sharing-already-active/);assert.equal(first.exitCode,null);
+  }finally{clearTimeout(secondDeadline);}
+  const exited=new Promise(resolve=>first.once('exit',resolve));first.stdin.end('{"t":"stop"}\n');assert.equal(await exited,0);
+  console.log('PASS: a second sharing helper is rejected without disturbing the first');
+ }finally{clearTimeout(heartbeat);clearTimeout(deadline);if(first.exitCode===null)first.stdin.end();}
+}

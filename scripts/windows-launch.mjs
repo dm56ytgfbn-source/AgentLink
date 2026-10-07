@@ -1,3 +1,4 @@
+import {ensureWindowsInputHelper} from './windows-input-helper.mjs';
 import {spawn, spawnSync} from 'node:child_process';
 import {existsSync} from 'node:fs';
 import {readFile, writeFile, readdir, mkdir} from 'node:fs/promises';
@@ -79,6 +80,10 @@ if(process.argv.includes('--open-pairing')){
     console.log('AgentLink '+version+' 已在运行。地址：https://'+(localAddresses()[0]??'127.0.0.1')+':'+config.port);
     if(!ensureOnly)showPairingRequests(config);
   }else{
+    if(config.input_share?.enabled){
+      config.input_share.helper=await ensureWindowsInputHelper();
+      await writeFile(setup.config,JSON.stringify(config,null,2)+'\n');
+    }
     const supervisor=fileURLToPath(new URL('../dist/apps/node/supervisor.js',import.meta.url));
     const child=spawn(process.execPath,[supervisor,setup.config],{stdio:ensureOnly?'ignore':'inherit',detached:ensureOnly,windowsHide:ensureOnly});
     if(ensureOnly)child.unref();

@@ -1,3 +1,4 @@
+import type {InputPlatform} from '../../packages/input-share/keys.js';
 import https from 'node:https';
 import type {TLSSocket} from 'node:tls';
 import {readFile} from 'node:fs/promises';
@@ -7,7 +8,7 @@ import {resolveToken,type Device} from '../runtime/client.js';
 import type {HelperPort} from './helper.js';
 import {hostSession} from './session.js';
 import type {MacPosition} from '../../packages/input-share/layout.js';
-export interface NodeInputOptions {device_id:string;token:string;enabled:()=>boolean;helper:()=>HelperPort;layout?:Layout;position?:()=>MacPosition|undefined;}
+export interface NodeInputOptions {platform?:InputPlatform;device_id:string;token:string;enabled:()=>boolean;helper:()=>HelperPort;layout?:Layout;position?:()=>MacPosition|undefined;}
 // Optional HTTP Upgrade on the already paired HTTPS port. No additional firewall rule or listener.
 export function attachNodeInput(server:https.Server,options:NodeInputOptions){
  let active:JsonChannel|undefined;
@@ -23,7 +24,7 @@ export function attachNodeInput(server:https.Server,options:NodeInputOptions){
   socket.write('HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: agentlink-input-v1\r\n\r\n');
   const channel=new JsonChannel(socket);active=channel;
   channel.on('closed',()=>{if(active===channel)active=undefined;});
-  hostSession(channel,{device_id:options.device_id,token:options.token,helper:options.helper,layout:options.layout,
+  hostSession(channel,{platform:options.platform,device_id:options.device_id,token:options.token,helper:options.helper,layout:options.layout,
    macPosition:options.position?.(),currentPosition:options.position,disabled:()=>!options.enabled()});
   if(head.length)socket.unshift(head);
  });

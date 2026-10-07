@@ -1,3 +1,4 @@
+import { watchInputShareConfig } from '../input-share/config-watch.js';
 import { readFile, writeFile } from "node:fs/promises";
 import { randomBytes, randomUUID } from "node:crypto";
 import path from "node:path";
@@ -30,6 +31,8 @@ try {
   } else if (command === "serve") {
     const c: Config = JSON.parse(await readFile(file, "utf8"));
     const { server, disable, initializeTasks } = await createNode(c);
+    const stopWatchingInput=watchInputShareConfig(file,c);
+    server.once('close',stopWatchingInput);
     server.on('error', (e: NodeJS.ErrnoException) => { console.error(e.code ?? 'LISTEN_FAILED'); disable(); process.exitCode = 1; });
     server.listen(c.port, c.host, async () => {
       try { await initializeTasks(); } catch { console.error('TASK_RECOVERY_FAILED'); disable(); }

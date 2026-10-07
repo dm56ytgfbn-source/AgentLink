@@ -10,4 +10,8 @@ const pairs:number[][]=[
  [338,114],[327,115],[329,116],[339,117],[335,119],[337,121],[331,123],[333,124],[336,125],[328,126],[86,10]
 ];
 const toMac=new Map(pairs.map(([a,b])=>[a,b])), toWindows=new Map(pairs.map(([a,b])=>[b,a]));
+export type InputPlatform = 'win32' | 'darwin';
+export function translateKeyBetween(source:InputPlatform,target:InputPlatform,code:number){
+ return source===target?code:translateKey(source==='win32'?'windows':'mac',code);
+}
 export function translateKey(source:'windows'|'mac',code:number) { return (source==='windows'?toMac:toWindows).get(code); }

@@ -203,3 +203,78 @@ test('input upgrade reuses paired HTTPS port; authentication, busy rejection and
   await assert.rejects(connectNodeInput(device),/409/);stop();await until(()=>w!.stopped&&m!.stopped);
  }finally{stop();server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));}
 });
+
+test('v2 Windows peers preserve scan codes in both directions, and the initiating position wins',async()=>{
+ const [a,b]=pair();let hostHelper:FakeHelper|undefined,clientHelper:FakeHelper|undefined;
+ const events:{source:unknown;target:unknown}[]=[];
+ let position:'left'|'right'='right';
+ const host=hostSession(new JsonChannel(a),{platform:'win32',device_id:'fixture',token:'fixture-long-token',macPosition:'left',
+  helper:()=>hostHelper=new FakeHelper('windows'),onFocus:e=>events.push(e)});
+ const client=clientSession(new JsonChannel(b),{platform:'win32',device_id:'fixture',token:'fixture-long-token',macPosition:position,
+  currentPosition:()=>position,helper:()=>clientHelper=new FakeHelper('mac')});
+ try{
+  await until(()=>!!hostHelper&&!!clientHelper&&events.length>0);await pause(400);
+  hostHelper!.input(move());await until(()=>events.at(-1)?.target==='mac');
+  // Include extended/navigation, right modifiers and codes absent from the Mac mapping.
+  const codes=[30,285,312,347,328,511];
+  for(const code of codes)for(const down of [true,false])hostHelper!.input({kind:'key',code,down});
+  await until(()=>clientHelper!.commands.filter(c=>c.t==='input'&&c.e.kind==='key').length===codes.length*2);
+  assert.deepEqual(clientHelper!.commands.filter(c=>c.t==='input'&&c.e.kind==='key').map(c=>(c as Extract<Command,{t:'input'}>).e),codes.flatMap(code=>[true,false].map(down=>({kind:'key',code,down}))));
+  hostHelper!.input({kind:'scroll',dx:4,dy:-40});hostHelper!.input({kind:'button',button:0,down:true});hostHelper!.input({kind:'button',button:0,down:false});
+  await until(()=>clientHelper!.commands.some(c=>c.t==='input'&&c.e.kind==='scroll'&&c.e.dy===-40));
+  // The second physical Windows mouse takes over, then crosses from its negative-coordinate display.
+  clientHelper!.input(move(-1400,300,-2));await until(()=>events.at(-1)?.source===null);
+  await pause(400);clientHelper!.input(move(-1440,300,-2));await until(()=>events.at(-1)?.source==='mac'&&events.at(-1)?.target==='windows');
+  for(const code of codes)for(const down of [true,false])clientHelper!.input({kind:'key',code,down});
+  await until(()=>hostHelper!.commands.filter(c=>c.t==='input'&&c.e.kind==='key').length===codes.length*2);
+  assert.deepEqual(hostHelper!.commands.filter(c=>c.t==='input'&&c.e.kind==='key').map(c=>(c as Extract<Command,{t:'input'}>).e),codes.flatMap(code=>[true,false].map(down=>({kind:'key',code,down}))));
+  position='left';await pause(2200);await pause(400);
+  hostHelper!.input(move(0,400,-4));await until(()=>events.at(-1)?.source==='windows'&&events.at(-1)?.target==='mac');
+  // Stop while a remote key is down: local mode + helper.stop release it.
+  hostHelper!.input({kind:'key',code:29,down:true});await pause(20);host.stop();client.stop();
+  assert.ok(hostHelper!.stopped&&clientHelper!.stopped);
+  assert.ok(hostHelper!.commands.some(c=>c.t==='mode'&&c.mode==='local'));
+ }finally{host.stop();client.stop();}
+});
+
+test('Windows client refuses a legacy welcome before starting any input hook',async()=>{
+ const [a,b]=pair();const server=new JsonChannel(a),client=new JsonChannel(b);let started=false,reason='';
+ server.on('message',()=>server.send({t:'welcome',version:1,device_id:'fixture'}));
+ client.on('closed',r=>reason=r);
+ const session=clientSession(client,{platform:'win32',device_id:'fixture',token:'fixture-long-token',helper:()=>{started=true;return new FakeHelper('windows');}});
+ try{await until(()=>!!reason);assert.equal(started,false);assert.equal(reason,'server-identity-mismatch');}finally{session.stop();server.close('done');}
+});
+
+test('v2 still converts actual Windows-to-Mac keys, and native start failures close cleanly',async()=>{
+ const [a,b]=pair();let w:FakeHelper|undefined,m:FakeHelper|undefined;
+ const host=hostSession(new JsonChannel(a),{platform:'win32',device_id:'fixture',token:'fixture-long-token',helper:()=>w=new FakeHelper('windows')});
+ const client=clientSession(new JsonChannel(b),{platform:'darwin',protocolVersion:2,device_id:'fixture',token:'fixture-long-token',helper:()=>m=new FakeHelper('mac')});
+ try{
+  await until(()=>!!w&&!!m);await pause(400);w!.input(move());await pause(30);w!.input({kind:'key',code:30,down:true});
+  await until(()=>m!.commands.some(c=>c.t==='input'&&c.e.kind==='key'&&c.e.code===0));
+ }finally{host.stop();client.stop();}
+ const [c,d]=pair();const server=new JsonChannel(c),peer=new JsonChannel(d);let reason='';
+ server.on('message',()=>server.send({t:'welcome',version:2,platform:'win32',device_id:'fixture'}));peer.on('closed',r=>reason=r);
+ const failed=clientSession(peer,{platform:'win32',device_id:'fixture',token:'fixture-long-token',helper:()=>{throw Error('fixture');}});
+ try{await until(()=>!!reason);assert.equal(reason,'native-helper-start-failed');}finally{failed.stop();server.close('done');}
+});
+
+test('local input opt-in changes reload without altering identity or other permissions',async()=>{
+ const {watchInputShareConfig}=await import('../apps/input-share/config-watch.js');
+ const dir=await mkdtemp(path.join(os.tmpdir(),'agentlink-input-config-'));
+ const file=path.join(dir,'node.local.json');
+ const config:import('../apps/node/server.js').Config={device_id:'fixture',name:'fixture',host:'127.0.0.1',port:7443,
+  token:'fixture-long-token-at-least-32-characters',cert:path.join(dir,'cert'),key:path.join(dir,'key'),allowed_roots:[dir],mode:'developer',
+  capabilities:['filesystem'],audit:path.join(dir,'audit'),kill_switch:path.join(dir,'disabled')};
+ await writeFile(file,JSON.stringify(config));const stop=watchInputShareConfig(file,config,30);
+ try{
+  await pause(60);
+  await writeFile(file,JSON.stringify({...config,token:'not-applied',allowed_roots:['not-applied'],input_share:{enabled:true,helper:path.join(dir,'helper')}}));
+  await until(()=>config.input_share?.enabled===true);
+  assert.equal(config.token,'fixture-long-token-at-least-32-characters');assert.deepEqual(config.allowed_roots,[dir]);
+  await writeFile(file,JSON.stringify({...config,input_share:{enabled:false,helper:path.join(dir,'helper')}}));
+  await until(()=>config.input_share?.enabled===false);
+  await writeFile(file,JSON.stringify({...config,input_share:{enabled:true,helper:'relative-is-invalid'}}));
+  await until(()=>config.input_share===undefined);
+ }finally{stop();}
+});

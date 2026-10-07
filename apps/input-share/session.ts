@@ -4,32 +4,44 @@ import {VERSION,nativeMessageSchema,commandSchema,displaysSchema,layoutSchema,ty
 import {defaultLayout,layoutFor,type MacPosition} from '../../packages/input-share/layout.js';
 import {InputSharingEngine,type FocusEvent} from '../../packages/input-share/engine.js';
 import type {HelperPort} from './helper.js';
-const hello=z.object({t:z.literal('hello'),version:z.literal(VERSION),device_id:z.string().min(1).max(200),token:z.string().min(16).max(4096)}).strict();
+import type {InputPlatform} from '../../packages/input-share/keys.js';
+const platform=z.enum(['win32','darwin']);
+const identity={device_id:z.string().min(1).max(200),token:z.string().min(16).max(4096)};
+const hello=z.union([
+ z.object({t:z.literal('hello'),version:z.literal(VERSION),...identity}).strict(),
+ z.object({t:z.literal('hello'),version:z.literal(2),platform,...identity}).strict()
+]);
 const ping=z.object({t:z.literal('ping'),at:z.number().finite()}).strict();
 const pong=z.object({t:z.literal('pong'),at:z.number().finite()}).strict();
-const welcome=z.object({t:z.literal('welcome'),version:z.literal(VERSION),device_id:z.string()}).strict();
-// Either computer can set a position. A Windows-side choice takes precedence while it exists;
-// otherwise the Mac preference applies. Both can be changed without restarting the session.
+const welcome=z.union([
+ z.object({t:z.literal('welcome'),version:z.literal(VERSION),device_id:z.string()}).strict(),
+ z.object({t:z.literal('welcome'),version:z.literal(2),platform,device_id:z.string()}).strict()
+]);
+// Legacy v1 keeps host position precedence. v2 uses the initiating peer preference;
+// changing its position updates both ends without restarting.
 const layoutMessage=z.object({t:z.literal('layout'),mac_position:z.enum(['left','right','top','bottom'])}).strict();
 const focus=z.object({version:z.literal(1),type:z.literal('input-focus'),epoch:z.number().int(),source:z.enum(['windows','mac']).nullable(),target:z.enum(['windows','mac']).nullable(),reason:z.string(),timestamp:z.number()}).strict();
-export interface SessionOptions {device_id:string;token:string;helper:()=>HelperPort;layout?:Layout;macPosition?:MacPosition;
+// Wire side names are legacy layout roles: windows = host, mac = client.
+// Actual operating systems are negotiated separately, never inferred from these roles.
+export interface SessionOptions {platform?:InputPlatform;protocolVersion?:1|2;device_id:string;token:string;helper:()=>HelperPort;layout?:Layout;macPosition?:MacPosition;
  /** Polled so a position changed in another window takes effect without restarting the session. */
  currentPosition?:()=>Promise<MacPosition|undefined>|MacPosition|undefined;disabled?:()=>boolean;onFocus?:(event:FocusEvent)=>void;onRtt?:(ms:number)=>void;}
 export function hostSession(channel:JsonChannel,options:SessionOptions){
  let helper:HelperPort|undefined,engine:InputSharingEngine|undefined,authenticated=false,closed=false;
  let windows:z.infer<typeof displaysSchema>|undefined,mac:z.infer<typeof displaysSchema>|undefined;
  let last=Date.now(),deadline=last+10000,pendingPing:number|null=null;
+ let peerPlatform:InputPlatform='darwin',protocolVersion:1|2=1;
  let localPosition=options.macPosition,remotePosition:MacPosition|undefined;
  let activeLayout=localPosition?undefined:options.layout,activePosition=localPosition;
  let positionTicks=0;
  const updatePosition=()=>{
-  const next=localPosition??remotePosition;
+  const next=protocolVersion===2?(remotePosition??localPosition):(localPosition??remotePosition);
   if(next===activePosition&&activeLayout===undefined)return;
   activePosition=next;activeLayout=undefined;
   if(engine&&windows&&mac){try{engine.setLayout(next?layoutFor({windows,mac},next):defaultLayout({windows,mac}));}catch{finish('invalid-display-layout');}}
  };
- const finish=(reason:string)=>{if(closed)return;closed=true;clearInterval(timer);engine?.reset(reason,true);helper?.stop();channel.close(reason);};
- const maybeStart=()=>{if(engine||!windows||!mac)return;try{const screens={windows,mac};engine=new InputSharingEngine(screens,activeLayout??(activePosition?layoutFor(screens,activePosition):defaultLayout(screens)),(side,c)=>{if(side==='windows')helper?.send(c);else channel.send({t:'command',c});});
+ const finish=(reason:string)=>{if(closed)return;closed=true;clearInterval(timer);engine?.reset(reason,true);helper?.stop();if(authenticated&&protocolVersion===2)channel.send({t:'stopped',reason:reason.slice(0,160)});channel.close(reason);};
+ const maybeStart=()=>{if(engine||!windows||!mac)return;try{const screens={windows,mac};engine=new InputSharingEngine(screens,activeLayout??(activePosition?layoutFor(screens,activePosition):defaultLayout(screens)),(side,c)=>{if(side==='windows')helper?.send(c);else channel.send({t:'command',c});},undefined,{windows:options.platform??'win32',mac:peerPlatform});
    engine.on('focus',(event:FocusEvent)=>{channel.send({t:'focus',event});options.onFocus?.(event);});engine.start();
   }catch{finish('invalid-display-layout');}};
  const native=(side:Side,m:NativeMessage)=>{
@@ -41,7 +53,11 @@ export function hostSession(channel:JsonChannel,options:SessionOptions){
  channel.on('message',(m:unknown)=>{
   if(closed)return;
   if(!authenticated){const h=hello.safeParse(m);if(!h.success||h.data.device_id!==options.device_id||!secretEqual(h.data.token,options.token)||options.disabled?.()){finish('authentication-denied');return;}
-   authenticated=true;last=Date.now();channel.send({t:'welcome',version:VERSION,device_id:options.device_id});
+   if(h.data.version===1&&options.platform==='darwin'){finish('peer-platform-required');return;}
+   protocolVersion=h.data.version;peerPlatform=h.data.version===2?h.data.platform:'darwin';
+   authenticated=true;last=Date.now();channel.send(protocolVersion===2
+    ?{t:'welcome',version:2,platform:options.platform??'win32',device_id:options.device_id}
+    :{t:'welcome',version:VERSION,device_id:options.device_id});
    try{helper=options.helper();}catch{finish('native-helper-start-failed');return;}helper.on('message',m=>native('windows',m));helper.on('closed',finish);return;
   }
   const l=layoutMessage.safeParse(m);
@@ -61,14 +77,17 @@ export function hostSession(channel:JsonChannel,options:SessionOptions){
  channel.on('closed',finish);return {stop:()=>finish('stopped'),get activated(){return authenticated;}};
 }
 export function clientSession(channel:JsonChannel,options:SessionOptions){
+ const protocolVersion=options.platform==='win32'?2:(options.protocolVersion??1);
  let helper:HelperPort|undefined,welcomed=false,closed=false,last=Date.now(),lastPosition=options.macPosition,ticks=0;
  const finish=(reason:string)=>{if(closed)return;closed=true;clearInterval(timer);helper?.stop();channel.close(reason);};
  channel.on('message',(m:unknown)=>{
   if(closed)return;
-  if(!welcomed){const w=welcome.safeParse(m);if(!w.success||w.data.device_id!==options.device_id){finish('server-identity-mismatch');return;}
-   welcomed=true;last=Date.now();helper=options.helper();helper.on('message',m=>channel.send(m));helper.on('closed',finish);
+  if(!welcomed){const w=welcome.safeParse(m);if(!w.success||w.data.device_id!==options.device_id||w.data.version!==protocolVersion){finish('server-identity-mismatch');return;}
+   welcomed=true;last=Date.now();try{helper=options.helper();}catch{finish('native-helper-start-failed');return;}helper.on('message',m=>{channel.send(m);if(m.t==='panic')finish(m.reason);});helper.on('closed',finish);
   if(options.macPosition)channel.send({t:'layout',mac_position:options.macPosition});return;
   }
+  const stopped=z.object({t:z.literal('stopped'),reason:z.string().max(160)}).strict().safeParse(m);
+  if(protocolVersion===2&&stopped.success){finish(stopped.data.reason);return;}
   const p=ping.safeParse(m);if(p.success){last=Date.now();helper?.send({t:'ping'});channel.send({t:'pong',at:p.data.at});return;}
   const c=z.object({t:z.literal('command'),c:commandSchema}).strict().safeParse(m);if(c.success){helper?.send(c.data.c);return;}
   const f=z.object({t:z.literal('focus'),event:focus}).strict().safeParse(m);if(f.success){options.onFocus?.(f.data.event);return;}
@@ -85,5 +104,7 @@ export function clientSession(channel:JsonChannel,options:SessionOptions){
   }).catch(()=>{});
  },250);
  channel.on('closed',finish);
- channel.send({t:'hello',version:VERSION,device_id:options.device_id,token:options.token});return {stop:()=>finish('stopped')};
+ channel.send(protocolVersion===2
+  ?{t:'hello',version:2,platform:options.platform??'darwin',device_id:options.device_id,token:options.token}
+  :{t:'hello',version:VERSION,device_id:options.device_id,token:options.token});return {stop:()=>finish('stopped')};
 }

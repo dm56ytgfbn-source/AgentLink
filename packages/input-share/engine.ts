@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { clamp, crossing, validateLayout, type Screens } from './layout.js';
-import { translateKey } from './keys.js';
+import { translateKeyBetween, type InputPlatform } from './keys.js';
 import type {Command, Input, Layout, Point, Side} from './protocol.js';
 export interface FocusEvent {version:1;type:'input-focus';epoch:number;source:Side|null;target:Side|null;reason:string;timestamp:number}
 // Future Computer Context consumers subscribe to focus; no implicit mutation of an agent's context.
@@ -8,7 +8,7 @@ export class InputSharingEngine extends EventEmitter {
  epoch=0;source:Side|null=null;target:Side|null=null;point:Point={x:0,y:0};
  private pending:{phase:'target'|'source';source:Side;target:Side;point:Point;deadline:number}|null=null;
  private changed=0; private held=new Set<string>();private paused=false;private rearmAt=0;
- constructor(public screens:Screens,public layout:Layout,private send:(side:Side,c:Command)=>void,private now=()=>Date.now()) {super();validateLayout(layout,screens);}
+ constructor(public screens:Screens,public layout:Layout,private send:(side:Side,c:Command)=>void,private now=()=>Date.now(),private platforms:Record<Side,InputPlatform>={windows:'win32',mac:'darwin'}) {super();validateLayout(layout,screens);}
  start(){this.reset('connected');}
  // A half-completed handoff must explicitly release both native helpers before geometry changes.
  setLayout(layout:Layout){
@@ -60,7 +60,7 @@ export class InputSharingEngine extends EventEmitter {
    this.point=clamp(this.screens[target],p);
    if(target!==side)this.send(target,{t:'input',epoch:this.epoch,e:{...e,...this.point}});
   }else if(target!==side){
-   if(e.kind==='key'){const code=translateKey(side,e.code);if(code===undefined)return;this.send(target,{t:'input',epoch:this.epoch,e:{...e,code}});}
+   if(e.kind==='key'){const code=translateKeyBetween(this.platforms[side],this.platforms[target],e.code);if(code===undefined)return;this.send(target,{t:'input',epoch:this.epoch,e:{...e,code}});}
    else this.send(target,{t:'input',epoch:this.epoch,e});
   }
  }

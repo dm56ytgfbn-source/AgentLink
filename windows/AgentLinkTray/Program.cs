@@ -201,7 +201,14 @@ static class Runtime
                 if (targets != null) foreach (object entry in targets)
                 {
                     Dictionary<string, object> target = entry as Dictionary<string, object>;
-                    if (target != null && target.ContainsKey("name")) result.TargetNames.Add(Convert.ToString(target["name"]));
+                    if (target != null && target.ContainsKey("name") && target.ContainsKey("device_id"))
+                    {
+                        string id = Convert.ToString(target["device_id"]);
+                        if (String.IsNullOrWhiteSpace(id) || id == result.DeviceId) continue;
+                        string name = Convert.ToString(target["name"]);
+                        result.TargetNames.Add(name);
+                        result.Targets.Add(new InputTarget { Id = id, Name = name });
+                    }
                 }
             }
             catch { /* No outgoing pairings yet. */ }
@@ -315,6 +322,37 @@ static class Runtime
         return moved.Count == 0 ? "已设置登录后自动启动。" : "已设置登录后自动启动；旧启动项已移入备份。";
     }
 
+    static string InputPreferencePath { get { return Path.Combine(Path.GetDirectoryName(RegistryPath), "input-share.local.json"); } }
+    public static string ReadInputPosition(string id)
+    {
+        try {
+            Dictionary<string, object> all = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(InputPreferencePath));
+            Dictionary<string, object> item = all.ContainsKey(id) ? all[id] as Dictionary<string, object> : null;
+            string value = item != null && item.ContainsKey("position") ? Convert.ToString(item["position"]) : "right";
+            return value == "left" || value == "top" || value == "bottom" ? value : "right";
+        } catch { return "right"; }
+    }
+    public static void SaveInputPosition(string id, string position)
+    {
+        Dictionary<string, object> all = File.Exists(InputPreferencePath)
+            ? new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(InputPreferencePath))
+            : new Dictionary<string, object>();
+        all[id] = new Dictionary<string, object> { { "position", position } };
+        Directory.CreateDirectory(Path.GetDirectoryName(InputPreferencePath));
+        File.WriteAllText(InputPreferencePath, new JavaScriptSerializer().Serialize(all) + "\n", new UTF8Encoding(false));
+    }
+    public static ProcessStartInfo InputStartInfo(string root, string deviceId)
+    {
+        // IDs are data from the paired registry, never command syntax.
+        if (!Regex.IsMatch(deviceId, @"^[a-zA-Z0-9_-]{1,200}$")) throw new Exception("配对设备标识无效，请重新配对");
+        ProcessStartInfo info = new ProcessStartInfo(NodePath(root));
+        info.Arguments = "\"" + Path.Combine(root, "scripts", "start-input-share-windows.mjs") + "\" connect --registry \"" + RegistryPath + "\" --device " + deviceId;
+        info.UseShellExecute = false; info.CreateNoWindow = true;
+        info.RedirectStandardInput = true; info.RedirectStandardOutput = true; info.RedirectStandardError = true;
+        info.StandardOutputEncoding = Encoding.UTF8; info.StandardErrorEncoding = Encoding.UTF8;
+        return info;
+    }
+
     public static string PrepareInputSharing(string root)
     {
         string script = Path.Combine(root, "scripts", "windows-input-share.mjs");
@@ -338,6 +376,13 @@ static class Runtime
     }
 }
 
+sealed class InputTarget
+{
+    public string Id;
+    public string Name;
+    public override string ToString() { return Name; }
+}
+
 sealed class LocalStatus
 {
     public string Name;
@@ -354,6 +399,7 @@ sealed class LocalStatus
     public string DeviceId;
     public string ScreenPosition;
     public List<string> TargetNames = new List<string>();
+    public List<InputTarget> Targets = new List<InputTarget>();
 }
 
 sealed class PeerChoice
@@ -385,6 +431,13 @@ sealed class TrayApp : ApplicationContext
     Label pairedDetail;
     Button sharingButton;
     Button positionButton;
+    ComboBox inputTargets;
+    ComboBox inputPositions;
+    Process inputProcess;
+    InputTarget activeInputTarget;
+    string inputMessage;
+    bool inputStopping;
+    bool loadingInputSettings;
     Panel sharingCard;
     Panel pairedCard;
     Button moreButton;
@@ -464,14 +517,28 @@ sealed class TrayApp : ApplicationContext
         statusDetail.Text = status.Online
             ? "本机服务已就绪 · 已配对其他电脑 " + status.TargetNames.Count + " 台"
             : (status.Message ?? "正在检查本机服务…");
-        string placement = String.IsNullOrEmpty(status.ScreenPosition) ? "屏幕位置跟随 Mac 设置" : "Mac 在 Windows 的" + PositionName(status.ScreenPosition);
-        sharingDetail.Text = (status.InputShareEnabled && status.InputShareHelperAvailable ? "已就绪 · " : "尚需配置键鼠共享 · ") + placement;
-        bool sharingReady = status.InputShareEnabled && status.InputShareHelperAvailable;
-        if (sharingButton != null && !sharingButton.IsDisposed) sharingButton.Text = sharingReady ? "设置屏幕位置" : "配置键鼠共享";
-        if (positionButton != null && !positionButton.IsDisposed) positionButton.Visible = !sharingReady;
+        if (inputTargets != null && inputProcess == null)
+        {
+            InputTarget previous = inputTargets.SelectedItem as InputTarget;
+            string selected = previous == null ? null : previous.Id;
+            loadingInputSettings = true;
+            inputTargets.Items.Clear();
+            foreach (InputTarget target in status.Targets) inputTargets.Items.Add(target);
+            for (int i = 0; i < inputTargets.Items.Count; i++) if (((InputTarget)inputTargets.Items[i]).Id == selected) inputTargets.SelectedIndex = i;
+            if (inputTargets.SelectedIndex < 0 && inputTargets.Items.Count > 0) inputTargets.SelectedIndex = 0;
+            loadingInputSettings = false;
+            LoadInputPosition();
+        }
+        if (inputTargets != null && inputProcess != null && inputTargets.Items.Count == 0 && activeInputTarget != null)
+        {
+            loadingInputSettings = true;
+            inputTargets.Items.Add(activeInputTarget); inputTargets.SelectedIndex = 0;
+            loadingInputSettings = false; LoadInputPosition();
+        }
+        RenderInputState();
         if (sharingCard != null && pairedCard != null && moreButton != null)
         {
-            sharingCard.Height = 124;
+            sharingCard.Height = 165;
             pairedCard.Top = sharingCard.Bottom + 14;
             moreButton.Top = pairedCard.Bottom + 17;
             technicalPanel.Top = moreButton.Bottom + 6;
@@ -616,12 +683,18 @@ sealed class TrayApp : ApplicationContext
             heading = label("正在检查这台电脑", 19, true, ink); heading.SetBounds(20, 39, 590, 40);
             statusDetail = label("正在检查本机服务…", 9, false, muted); statusDetail.SetBounds(20, 85, 600, 25);
             state.Controls.Add(eyebrow); state.Controls.Add(heading); state.Controls.Add(statusDetail);
-            sharingCard = new Panel(); sharingCard.SetBounds(0, 220, 644, 124); sharingCard.BackColor = Color.White;
+            sharingCard = new Panel(); sharingCard.SetBounds(0, 220, 644, 165); sharingCard.BackColor = Color.White;
             Label sharingTitle = label("键鼠共享", 13, true, ink); sharingTitle.SetBounds(20, 13, 450, 30);
             sharingDetail = label("正在检查…", 9, false, muted); sharingDetail.SetBounds(20, 44, 600, 29);
-            sharingButton = button("配置键鼠共享", delegate { OpenInputSharing(); }, true); sharingButton.SetBounds(20, 78, 150, 36);
-            positionButton = button("设置屏幕位置", delegate { OpenScreenPosition(); }, false); positionButton.SetBounds(182, 78, 150, 36);
-            sharingCard.Controls.Add(sharingTitle); sharingCard.Controls.Add(sharingDetail); sharingCard.Controls.Add(sharingButton); sharingCard.Controls.Add(positionButton);
+            inputTargets = new ComboBox(); inputTargets.DropDownStyle = ComboBoxStyle.DropDownList; inputTargets.SetBounds(20, 77, 272, 30);
+            inputPositions = new ComboBox(); inputPositions.DropDownStyle = ComboBoxStyle.DropDownList; inputPositions.SetBounds(304, 77, 320, 30);
+            inputPositions.Items.AddRange(new object[] { "本机在对方左侧", "本机在对方右侧", "本机在对方上方", "本机在对方下方" });
+            inputPositions.SelectedIndex = 1;
+            inputTargets.SelectedIndexChanged += delegate { if (!loadingInputSettings) { inputMessage = null; LoadInputPosition(); RenderInputState(); } };
+            inputPositions.SelectedIndexChanged += delegate { SaveInputPosition(); };
+            sharingButton = button("开始共享", delegate { OpenInputSharing(); }, true); sharingButton.SetBounds(20, 118, 150, 36);
+            sharingCard.Controls.Add(sharingTitle); sharingCard.Controls.Add(sharingDetail); sharingCard.Controls.Add(sharingButton);
+            sharingCard.Controls.Add(inputTargets); sharingCard.Controls.Add(inputPositions);
             pairedCard = new Panel(); pairedCard.SetBounds(0, 358, 644, 130); pairedCard.BackColor = Color.White;
             Label pairedTitle = label("连接其他电脑", 13, true, ink); pairedTitle.SetBounds(20, 12, 450, 30);
             pairedDetail = label("正在检查…", 9, false, muted); pairedDetail.SetBounds(20, 43, 600, 29);
@@ -641,11 +714,12 @@ sealed class TrayApp : ApplicationContext
             consoleText.Font = new Font("Microsoft YaHei UI", 9f);
             consoleText.BackColor = Color.White;
             consoleText.BorderStyle = BorderStyle.None;
-            technicalPanel.Controls.Add(repair); technicalPanel.Controls.Add(startup); technicalPanel.Controls.Add(consoleText);
+            positionButton = button("接收共享设置", delegate { OpenReceiverSettings(); }, false); positionButton.SetBounds(318, 10, 145, 34);
+            technicalPanel.Controls.Add(repair); technicalPanel.Controls.Add(startup); technicalPanel.Controls.Add(positionButton); technicalPanel.Controls.Add(consoleText);
             canvas.Controls.Add(brand); canvas.Controls.Add(tagline); canvas.Controls.Add(state);
             canvas.Controls.Add(sharingCard); canvas.Controls.Add(pairedCard); canvas.Controls.Add(moreButton); canvas.Controls.Add(technicalPanel);
             console.Controls.Add(canvas);
-            console.FormClosed += delegate { console = null; consoleText = null; heading = null; statusDetail = null; sharingDetail = null; pairedDetail = null; sharingButton = null; sharingCard = null; pairedCard = null; moreButton = null; technicalPanel = null; };
+            console.FormClosed += delegate { console = null; consoleText = null; heading = null; statusDetail = null; sharingDetail = null; pairedDetail = null; sharingButton = null; inputTargets = null; inputPositions = null; sharingCard = null; pairedCard = null; moreButton = null; technicalPanel = null; };
         }
         console.Show();
         console.BringToFront();
@@ -768,15 +842,15 @@ sealed class TrayApp : ApplicationContext
             dialog.MaximizeBox = false; dialog.MinimizeBox = false;
             dialog.StartPosition = FormStartPosition.CenterParent;
             dialog.Font = new Font("Microsoft YaHei UI", 9f);
-            Label hint = new Label(); hint.Text = "Mac 屏幕相对于这台 Windows 的位置";
+            Label hint = new Label(); hint.Text = "由对方发起共享时，对方屏幕在本机的哪一侧";
             hint.SetBounds(18, 18, 350, 28); dialog.Controls.Add(hint);
             ComboBox choices = new ComboBox(); choices.DropDownStyle = ComboBoxStyle.DropDownList;
             choices.SetBounds(18, 52, 350, 30);
-            choices.Items.AddRange(new object[] { "跟随 Mac 上的设置", "左侧", "右侧", "上方", "下方" });
+            choices.Items.AddRange(new object[] { "跟随发起端设置", "左侧", "右侧", "上方", "下方" });
             string current = Runtime.ReadPosition();
             choices.SelectedIndex = current == "left" ? 1 : current == "right" ? 2 : current == "top" ? 3 : current == "bottom" ? 4 : 0;
             dialog.Controls.Add(choices);
-            Label note = new Label(); note.Text = "保存后约 2 秒内生效，无需重新启动共享。";
+            Label note = new Label(); note.Text = "旧版共享可在此调整；新版请在发起端调整。";
             note.SetBounds(18, 91, 350, 25); dialog.Controls.Add(note);
             Button save = new Button(); save.Text = "保存位置"; save.SetBounds(249, 127, 119, 34); dialog.Controls.Add(save);
             save.Click += delegate
@@ -793,28 +867,112 @@ sealed class TrayApp : ApplicationContext
         }
     }
 
+    void RenderInputState()
+    {
+        if (sharingButton == null || sharingButton.IsDisposed) return;
+        bool running = inputProcess != null;
+        sharingButton.Text = inputStopping ? "正在停止…" : running ? "停止共享" : "开始共享";
+        sharingButton.Enabled = !inputStopping && (running || inputTargets.Items.Count > 0);
+        inputTargets.Enabled = !running;
+        sharingDetail.Text = inputMessage ?? (inputTargets.Items.Count == 0
+            ? "先添加另一台电脑；只需一端开始共享，两边键鼠都能跨屏。"
+            : "选好电脑和位置后开始共享。Ctrl+Alt+Esc 随时停止。");
+    }
+
+    void LoadInputPosition()
+    {
+        if (inputTargets == null || inputPositions == null) return;
+        InputTarget target = inputTargets.SelectedItem as InputTarget;
+        if (target == null) return;
+        loadingInputSettings = true;
+        string position = Runtime.ReadInputPosition(target.Id);
+        inputPositions.SelectedIndex = position == "left" ? 0 : position == "top" ? 2 : position == "bottom" ? 3 : 1;
+        loadingInputSettings = false;
+    }
+
+    bool SaveInputPosition()
+    {
+        if (loadingInputSettings || inputTargets == null || inputPositions == null) return true;
+        InputTarget target = inputTargets.SelectedItem as InputTarget;
+        if (target == null || inputPositions.SelectedIndex < 0) return false;
+        try { Runtime.SaveInputPosition(target.Id, new string[] { "left", "right", "top", "bottom" }[inputPositions.SelectedIndex]); return true; }
+        catch (Exception error) { inputMessage = "位置保存失败：" + error.Message; RenderInputState(); return false; }
+    }
+
+    void StopInputSharing()
+    {
+        if (inputProcess == null) return;
+        inputStopping = true;
+        inputMessage = "正在停止共享，恢复两台电脑的本地键鼠…";
+        try { inputProcess.StandardInput.WriteLine("stop"); inputProcess.StandardInput.Flush(); inputProcess.StandardInput.Close(); } catch { }
+        RenderInputState();
+    }
+
     void OpenInputSharing()
     {
-        if (last == null) { Refresh(); MessageBox.Show("正在读取键鼠共享状态，请稍后再试。", "AgentLink"); return; }
-        if (last.InputShareEnabled && last.InputShareHelperAvailable)
+        OpenConsole();
+        if (inputProcess != null) { StopInputSharing(); return; }
+        InputTarget target = inputTargets.SelectedItem as InputTarget;
+        if (target == null) { inputMessage = "先点击“添加电脑”完成配对，再选择要共享的电脑。"; RenderInputState(); return; }
+        if (!SaveInputPosition()) return;
+        try
         {
-            OpenScreenPosition();
-            return;
+            Process process = new Process(); process.StartInfo = Runtime.InputStartInfo(root, target.Id);
+            inputMessage = "正在连接 " + target.Name + "…"; inputStopping = false;
+            string lastMessage = "";
+            DataReceivedEventHandler receive = delegate(object sender, DataReceivedEventArgs e)
+            {
+                if (String.IsNullOrWhiteSpace(e.Data)) return;
+                string message = e.Data;
+                if (message.StartsWith("{"))
+                {
+                    try {
+                        Dictionary<string, object> item = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(message);
+                        if (!item.ContainsKey("type") || Convert.ToString(item["type"]) != "input-focus") return;
+                        message = "正在与 " + target.Name + " 共享 · 鼠标推向相邻屏幕边缘即可跨屏";
+                    } catch { return; }
+                }
+                if (message.StartsWith("Input sharing stopped: ")) message = "共享已结束：" + message.Substring(23);
+                if (message.Contains("input-sharing-already-active")) message = "已有键鼠共享正在使用本机，请先停止另一处共享。";
+                if (message.Contains("HTTP 403")) message = "对方尚未开启接收键鼠，请在对方的“诊断与设置”中配置接收共享。";
+                if (message.Contains("HTTP 409")) message = "对方正在共享键鼠，请先停止原来的共享。";
+                lastMessage = message.Length > 250 ? message.Substring(0, 250) : message;
+                string display = lastMessage;
+                try { dispatcher.BeginInvoke((MethodInvoker)delegate { if (inputProcess == process && !inputStopping) { inputMessage = display; RenderInputState(); } }); } catch { }
+            };
+            process.OutputDataReceived += receive; process.ErrorDataReceived += receive;
+            process.Start(); inputProcess = process; activeInputTarget = target;
+            process.BeginOutputReadLine(); process.BeginErrorReadLine(); RenderInputState();
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                process.WaitForExit();
+                int code = process.ExitCode;
+                try { dispatcher.BeginInvoke((MethodInvoker)delegate
+                {
+                    if (inputProcess != process) { process.Dispose(); return; }
+                    inputMessage = inputStopping ? "共享已停止，两台电脑已恢复本地键鼠。" : String.IsNullOrEmpty(lastMessage) ? "共享已结束（" + code + "）。" : lastMessage;
+                    inputProcess = null; activeInputTarget = null; inputStopping = false; process.Dispose(); if (last != null) UpdateConsole(last); else RenderInputState();
+                }); } catch { process.Dispose(); }
+            });
         }
-        if (MessageBox.Show("Windows 端尚未准备好键鼠共享。现在配置本机辅助程序吗？完成后需要重新启动 AgentLink 服务才能生效。", "AgentLink 键鼠共享", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        catch (Exception error) { inputProcess = null; inputMessage = "无法开始共享：" + error.Message; RenderInputState(); }
+    }
+
+    void OpenReceiverSettings()
+    {
+        if (last != null && last.InputShareEnabled && last.InputShareHelperAvailable) { OpenScreenPosition(); return; }
         ThreadPool.QueueUserWorkItem(delegate
         {
             string message;
-            try { Runtime.PrepareInputSharing(root); message = "Windows 端已配置。重新启动 AgentLink 服务后，在 Mac 的 AgentLink 设置中点击“开启键鼠共享”。"; }
+            try { Runtime.PrepareInputSharing(root); message = "接收共享已配置，约 1 秒后生效。由已配对的电脑发起共享即可；旧版后台需先升级。"; }
             catch (Exception error) { message = "配置失败：" + error.Message; }
-            try { dispatcher.BeginInvoke((MethodInvoker)delegate { MessageBox.Show(message, "AgentLink 键鼠共享"); Refresh(); }); }
-            catch { }
+            try { dispatcher.BeginInvoke((MethodInvoker)delegate { inputMessage = message; RenderInputState(); Refresh(); }); } catch { }
         });
     }
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { icon.Visible = false; icon.Dispose(); menu.Dispose(); timer.Dispose(); pairingTimer.Dispose(); signalTimer.Dispose(); dispatcher.Dispose(); }
+        if (disposing) { StopInputSharing(); icon.Visible = false; icon.Dispose(); menu.Dispose(); timer.Dispose(); pairingTimer.Dispose(); signalTimer.Dispose(); dispatcher.Dispose(); }
         base.Dispose(disposing);
     }
 }

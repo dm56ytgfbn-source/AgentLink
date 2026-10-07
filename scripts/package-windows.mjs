@@ -147,6 +147,8 @@ await copy('scripts/windows-configure-firewall.ps1', 'runtime/scripts/windows-co
 await copy('scripts/windows-launch.mjs', 'runtime/scripts/windows-launch.mjs');
 // Keyboard/mouse sharing is the one feature whose native half must be compiled ON Windows,
 // so both the source and the build script have to travel with the package.
+await copy('scripts/windows-input-helper.mjs', 'runtime/scripts/windows-input-helper.mjs');
+await copy('scripts/start-input-share-windows.mjs', 'runtime/scripts/start-input-share-windows.mjs');
 await copy('scripts/windows-input-share.mjs', 'runtime/scripts/windows-input-share.mjs');
 await copy('scripts/build-input-share.mjs', 'runtime/scripts/build-input-share.mjs');
 await copy('native/InputShareWindows.cs', 'runtime/native/InputShareWindows.cs');

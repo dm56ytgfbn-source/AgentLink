@@ -141,7 +141,7 @@ export async function createNode(c: Config, local: { onPairingRequest?: (pending
     host: localAddresses()[0] ?? '127.0.0.1' }));
   const info: NodeInfo = {
     protocol_version: 2,
-    features: ['safe-rename-replace', 'default-cwd-v1', ...(c.trusted_clients?.length ? ['signed-requests-v1'] : []), ...(windowBrokerEnabled() ? ['window-broker-external'] : []), ...(c.input_share?.enabled && c.mode==='developer' ? ['input-sharing-v1'] : []), ...(c.tasks_dir && c.capabilities.includes('tasks') ? ['persistent-tasks-v1'] : [])],
+    features: ['safe-rename-replace', 'default-cwd-v1', ...(c.trusted_clients?.length ? ['signed-requests-v1'] : []), ...(windowBrokerEnabled() ? ['window-broker-external'] : []), ...(c.input_share?.enabled && c.mode==='developer' ? ['input-sharing-v1','input-sharing-peer-platform-v2'] : []), ...(c.tasks_dir && c.capabilities.includes('tasks') ? ['persistent-tasks-v1'] : [])],
     device_id: c.device_id,
     name: c.name,
     os: process.platform,
@@ -456,7 +456,7 @@ export async function createNode(c: Config, local: { onPairingRequest?: (pending
       }
     },
   );
-  stopInputSharing=attachNodeInput(server,{device_id:c.device_id,token:c.token,enabled:()=>!disabled&&c.mode==='developer'&&c.input_share?.enabled===true,
+  stopInputSharing=attachNodeInput(server,{platform:process.platform==='darwin'?'darwin':'win32',device_id:c.device_id,token:c.token,enabled:()=>!disabled&&c.mode==='developer'&&c.input_share?.enabled===true,
     helper:()=>new NativeHelper(c.input_share!.helper),layout:c.input_share?.layout,position:inputPosition});
   server.requestTimeout = 15000;
   server.headersTimeout = 10000;

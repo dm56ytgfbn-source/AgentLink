@@ -82,9 +82,12 @@ class AgentLinkInput {
   else if(kind=="button")Button((int)Num(e,"button"),(bool)e["down"]);
   else if(kind=="scroll"){wheelX+=Num(e,"dx")*3;wheelY+=Num(e,"dy")*3;int x=(int)wheelX,y=(int)wheelY;wheelX-=x;wheelY-=y;if(x!=0)MouseInputEvent(0x1000,unchecked((uint)x),0,0);if(y!=0)MouseInputEvent(0x800,unchecked((uint)y),0,0);}
  }
- [STAThread] static void Main(string[] args){try{
+ [STAThread] static void Main(string[] args){Mutex captureOwner=null;bool ownsCapture=false;try{
   try{SetProcessDpiAwarenessContext(new IntPtr(-4));}catch(EntryPointNotFoundException){Console.Error.WriteLine("Windows 10 1703 or later required");Environment.Exit(2);}
   if(Array.IndexOf(args,"--inspect")>=0){Console.WriteLine(json.Serialize(Obj("t","ready","permissions",DesktopSafe(),"displays",Displays())));return;}
+  captureOwner=new Mutex(false,@"Local\AgentLinkInputCapture");
+  try{ownsCapture=captureOwner.WaitOne(0);}catch(AbandonedMutexException){ownsCapture=true;}
+  if(!ownsCapture){Console.WriteLine(json.Serialize(Obj("t","panic","reason","input-sharing-already-active")));Environment.ExitCode=2;return;}
   if(!DesktopSafe()){Console.Error.WriteLine("An unlocked interactive desktop is required");Environment.Exit(2);}
   var writer=new Thread(delegate(){foreach(var line in outgoing.GetConsumingEnumerable()){Console.WriteLine(line);Console.Out.Flush();}});writer.IsBackground=true;writer.Start();
   for(int vk=8;vk<256;vk++){if(vk==16||vk==17||vk==18)continue;if((GetAsyncKeyState(vk)&0x8000)!=0){uint scan=MapVirtualKey((uint)vk,4);if(scan!=0)physicalKeys.Add((int)(scan&255)+((scan&0xFF00)==0xE000?256:0));}}
@@ -100,5 +103,5 @@ class AgentLinkInput {
    if(initialDisplays!=json.Serialize(Displays()))Stop("display-layout-changed");
   };timer.Start();
   Emit(Obj("t","ready","permissions",true,"displays",Displays()));Application.Run();writer.Join(500);
- }catch(Exception e){Console.Error.WriteLine(e.Message);Stop("native-error");Environment.ExitCode=2;}}
+ }catch(Exception e){Console.Error.WriteLine(e.Message);Stop("native-error");Environment.ExitCode=2;}finally{if(ownsCapture)captureOwner.ReleaseMutex();if(captureOwner!=null)captureOwner.Dispose();}}
 }
