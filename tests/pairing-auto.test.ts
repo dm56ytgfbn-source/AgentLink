@@ -6,7 +6,7 @@ import path from 'node:path';
 import https from 'node:https';
 import {createNode, type Config} from '../apps/node/server.js';
 import {setupNode} from '../apps/node/setup.js';
-import {pairingWindowOpen} from '../apps/node/pairing.js';
+import {PairingService, pairingWindowOpen} from '../apps/node/pairing.js';
 import {pairWith, beginPairWith, finishPairWith} from '../apps/runtime/pair-auto.js';
 import {call} from '../apps/runtime/client.js';
 import {resolvePaths} from '../packages/config/index.js';
@@ -119,4 +119,34 @@ test('the receiving computer writes a request locally and grants access only aft
   assert.equal(result.device_id,target.config.device_id);
   const registry=JSON.parse(await readFile(paths.registry,'utf8'));
   assert.equal((await call(registry.devices[0]) as {device_id:string}).device_id,target.config.device_id);
+});
+
+test('receiving node rejects its own identity even from an old or manual client', () => {
+  let requests = 0;
+  const clients: {device_id: string; name: string; paired_at: string}[] = [];
+  const service = new PairingService({
+    station: () => ({ device_id: 'self-id', name: 'This PC', os: 'win32', hostname: 'test',
+      port: 7443, tls_server_name: 'test.local', fingerprint: '', pairing_open: true, protocol: 1 }),
+    markerFile: path.join(os.tmpdir(), 'agentlink-self-pair-no-marker'), clients,
+    onPaired: async () => {}, onRequest: () => { requests++; }, isApproved: () => true,
+  });
+  assert.deepEqual(service.request({device_id: 'self-id', name: 'Different display name'}), {ok: false, reason: 'self-pairing'});
+  assert.equal(service.pendingCount, 0);
+  assert.equal(requests, 0);
+  assert.deepEqual(clients, []);
+  assert.equal(service.request({device_id: 'other-id', name: 'This PC'}).ok, true,
+    'different devices with the same display name must still be allowed');
+});
+
+test('outgoing self-pair is rejected before requesting approval or writing a registry', async t => {
+  const port = takePort();
+  const target = await station(port);
+  t.after(async () => { await target.close(); });
+  const paths = resolvePaths({home: path.join(target.dir, 'self-client')});
+  const localIdentity = {directory: path.dirname(target.setup.config)};
+  await assert.rejects(pairWith(announcement(target, port), {paths, localIdentity}), /不能与自己配对/);
+  assert.deepEqual(target.receivedClients, [], 'no confirmation request should reach the UI');
+  await assert.rejects(readFile(paths.registry), {code: 'ENOENT'}, 'no pairing should be stored');
+  assert.equal((await setupNode(localIdentity)).device_id, target.config.device_id,
+    'rejecting self-pair must preserve existing identity');
 });

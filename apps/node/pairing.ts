@@ -42,6 +42,7 @@ export class PairingService {
     const deviceId = typeof client?.device_id === 'string' ? client.device_id.trim() : '';
     const name = typeof client?.name === 'string' ? client.name.trim() : '';
     if (!deviceId || deviceId.length > 200) return { ok: false, reason: 'invalid-device-id' };
+    if (deviceId === this.dependencies.station().device_id) return { ok: false, reason: 'self-pairing' };
     if (!name || name.length > 200) return { ok: false, reason: 'invalid-name' };
     if (this.dependencies.clients.some(entry => entry.device_id === deviceId)) return { ok: false, reason: 'already-paired' };
     this.prune();

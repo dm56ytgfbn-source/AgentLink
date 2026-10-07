@@ -98,6 +98,7 @@ export async function beginPairWith(peer: Announcement, name?: string, identity:
   // Pairing is a user action. Prepare one durable identity here, even if this computer has
   // not yet enabled inbound access; the same identity is reused when it later does so.
   const setup = await setupNode({ directory, ...(identity.shareRoot ? { shareRoot: identity.shareRoot } : {}) });
+  if (peer.device_id === setup.device_id) throw new Error('这是本机，不能与自己配对。请选择另一台电脑，或输入另一台电脑的局域网 IP。');
   const started = await postJson(new URL('/pair/request', base), { device_id: setup.device_id, name: name ?? setup.name }, peer.fingerprint);
   if (started.status !== 200 || started.body.ok !== true)
     throw new Error('对方拒绝了配对请求（' + String(started.body.reason ?? started.status) + '）');
