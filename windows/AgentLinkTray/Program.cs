@@ -181,6 +181,44 @@ static class Runtime
         }
     }
 
+    public static List<InputTarget> ReadPairedTargets(string json, string ownId)
+    {
+        Dictionary<string, object> registry = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(json);
+        // JavaScriptSerializer uses ArrayList inside a typed dictionary, not object[].
+        IEnumerable entries = registry.ContainsKey("devices") ? registry["devices"] as IEnumerable : null;
+        if (entries == null || registry["devices"] is string) throw new Exception("设备列表格式无效");
+        List<InputTarget> targets = new List<InputTarget>();
+        HashSet<string> ids = new HashSet<string>();
+        foreach (object entry in entries)
+        {
+            Dictionary<string, object> target = entry as Dictionary<string, object>;
+            if (target == null || !target.ContainsKey("name") || !target.ContainsKey("device_id")) continue;
+            string id = Convert.ToString(target["device_id"]), name = Convert.ToString(target["name"]);
+            if (String.IsNullOrWhiteSpace(id) || String.IsNullOrWhiteSpace(name) || id == ownId || !ids.Add(id)) continue;
+            targets.Add(new InputTarget { Id = id, Name = name });
+        }
+        return targets;
+    }
+
+    public static void TestPairedTargets()
+    {
+        string json = new JavaScriptSerializer().Serialize(new Dictionary<string, object> { { "devices", new object[] {
+            new Dictionary<string, object> { { "device_id", "self" }, { "name", "My PC" } },
+            new Dictionary<string, object> { { "device_id", "peer-one" }, { "name", "Cindy" } },
+            new Dictionary<string, object> { { "device_id", "peer-two" }, { "name", "My PC" } }
+        } } });
+        List<InputTarget> targets = ReadPairedTargets(json, "self");
+        if (targets.Count != 2 || targets[0].Id != "peer-one" || targets[0].Name != "Cindy" || targets[1].Id != "peer-two")
+            throw new Exception("Paired-list regression: saved peers must populate the sharing selector, excluding only this device ID");
+        if (ReadPairedTargets("{\"devices\":[]}", "self").Count != 0) throw new Exception("Empty paired-list regression");
+    }
+
+    public static void CheckPaired(string root, string deviceId)
+    {
+        if (!Regex.IsMatch(deviceId, @"^[a-zA-Z0-9_-]{1,200}$")) throw new Exception("设备标识无效");
+        RunPair(root, "computer info " + deviceId, 15000);
+    }
+
     public static LocalStatus Local(string root)
     {
         LocalStatus result = new LocalStatus();
@@ -196,22 +234,13 @@ static class Runtime
             result.ScreenPosition = ReadPosition();
             try
             {
-                Dictionary<string, object> registry = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(RegistryPath));
-                object[] targets = registry.ContainsKey("devices") ? registry["devices"] as object[] : null;
-                if (targets != null) foreach (object entry in targets)
+                if (File.Exists(RegistryPath)) foreach (InputTarget target in ReadPairedTargets(File.ReadAllText(RegistryPath), result.DeviceId))
                 {
-                    Dictionary<string, object> target = entry as Dictionary<string, object>;
-                    if (target != null && target.ContainsKey("name") && target.ContainsKey("device_id"))
-                    {
-                        string id = Convert.ToString(target["device_id"]);
-                        if (String.IsNullOrWhiteSpace(id) || id == result.DeviceId) continue;
-                        string name = Convert.ToString(target["name"]);
-                        result.TargetNames.Add(name);
-                        result.Targets.Add(new InputTarget { Id = id, Name = name });
-                    }
+                    result.TargetNames.Add(target.Name);
+                    result.Targets.Add(target);
                 }
             }
-            catch { /* No outgoing pairings yet. */ }
+            catch (Exception error) { result.RegistryError = "配对列表读取失败：" + error.Message; }
             if (config.ContainsKey("input_share"))
             {
                 Dictionary<string, object> sharing = config["input_share"] as Dictionary<string, object>;
@@ -398,6 +427,7 @@ sealed class LocalStatus
     public string ConfigPath;
     public string DeviceId;
     public string ScreenPosition;
+    public string RegistryError;
     public List<string> TargetNames = new List<string>();
     public List<InputTarget> Targets = new List<InputTarget>();
 }
@@ -409,7 +439,8 @@ sealed class PeerChoice
     public string Host;
     public int Port;
     public bool Open;
-    public override string ToString() { return Name + " · " + Host + (Open ? " · 可连接" : " · 等待对方允许"); }
+    public bool Paired;
+    public override string ToString() { return Name + " · " + Host + (Paired ? " · 已配对" : Open ? " · 可连接" : " · 等待对方允许"); }
 }
 
 sealed class TrayApp : ApplicationContext
@@ -544,7 +575,7 @@ sealed class TrayApp : ApplicationContext
             technicalPanel.Top = moreButton.Bottom + 6;
             console.ClientSize = new Size(700, (technicalPanel.Visible ? technicalPanel.Bottom : moreButton.Bottom) + 25);
         }
-        pairedDetail.Text = status.TargetNames.Count == 0
+        pairedDetail.Text = status.RegistryError != null ? status.RegistryError : status.TargetNames.Count == 0
             ? "还没有配对其他电脑。点击“添加电脑”开始配对。"
             : "已配对 " + status.TargetNames.Count + " 台：" + String.Join("、", status.TargetNames.ToArray());
         if (consoleText != null && !consoleText.IsDisposed) consoleText.Text = Describe(status);
@@ -770,7 +801,7 @@ sealed class TrayApp : ApplicationContext
             dialog.MaximizeBox = false; dialog.MinimizeBox = false;
             dialog.StartPosition = FormStartPosition.CenterParent;
             dialog.Font = new Font("Microsoft YaHei UI", 9f);
-            Label hint = new Label(); hint.Text = "在另一台电脑先点“允许新电脑连接”，然后在这里选择它。";
+            Label hint = new Label(); hint.Text = "已配对电脑可直接检查连接；首次添加才需要对方允许。";
             hint.SetBounds(18, 16, 450, 28); dialog.Controls.Add(hint);
             ListBox peers = new ListBox(); peers.SetBounds(18, 48, 445, 110); dialog.Controls.Add(peers);
             Label addressLabel = new Label(); addressLabel.Text = "找不到？输入对方的局域网 IP 或主机名：";
@@ -794,37 +825,45 @@ sealed class TrayApp : ApplicationContext
                         if (found != null) foreach (PeerChoice peer in found)
                         {
                             if (last != null && peer.DeviceId == last.DeviceId) continue;
+                            if (last != null) peer.Paired = last.Targets.Exists(target => target.Id == peer.DeviceId);
                             peers.Items.Add(peer);
-                            if (peer.Open && peers.SelectedIndex < 0) peers.SelectedItem = peer;
+                            if ((peer.Paired || peer.Open) && peers.SelectedIndex < 0) peers.SelectedItem = peer;
                         }
                         state.Text = error != null ? "搜索失败，可输入地址连接。" : peers.Items.Count == 0
                             ? "未发现电脑。可输入对方 IP；检查局域网防火墙。" : "找到 " + peers.Items.Count + " 台电脑。";
                     }); } catch { }
                 });
             };
+            Action updateConnect = delegate {
+                PeerChoice chosen = peers.SelectedItem as PeerChoice;
+                connect.Text = address.Text.Trim().Length == 0 && chosen != null && chosen.Paired ? "检查连接" : "添加电脑";
+            };
+            peers.SelectedIndexChanged += delegate { updateConnect(); };
+            address.TextChanged += delegate { updateConnect(); };
             scan.Click += delegate { search(); };
             dialog.Shown += delegate { search(); };
             connect.Click += delegate
             {
                 string host = address.Text.Trim(); int port = 7443;
                 PeerChoice selected = peers.SelectedItem as PeerChoice;
+                bool alreadyPaired = host.Length == 0 && selected != null && selected.Paired;
                 if (host.Length == 0 && selected != null)
                 {
-                    if (!selected.Open) { MessageBox.Show("请先在「" + selected.Name + "」上允许新电脑连接。", "AgentLink"); return; }
+                    if (!alreadyPaired && !selected.Open) { MessageBox.Show("请先在「" + selected.Name + "」上允许新电脑连接。", "AgentLink"); return; }
                     host = selected.Host; port = selected.Port;
                 }
                 if (host.Length == 0) { MessageBox.Show("请选择电脑，或输入对方的局域网地址。", "AgentLink"); return; }
-                connect.Enabled = false; scan.Enabled = false; state.Text = "已发出连接请求，请在对方电脑上确认…";
+                connect.Enabled = false; scan.Enabled = false; state.Text = alreadyPaired ? "正在验证已有连接…" : "已发出连接请求，请在对方电脑上确认…";
                 ThreadPool.QueueUserWorkItem(delegate
                 {
                     string error = null;
-                    try { Runtime.Pair(root, host, port); }
+                    try { if (alreadyPaired) Runtime.CheckPaired(root, selected.DeviceId); else Runtime.Pair(root, host, port); }
                     catch (Exception caught) { error = caught.Message; }
                     try { dialog.BeginInvoke((MethodInvoker)delegate
                     {
                         connect.Enabled = true; scan.Enabled = true;
-                        if (error != null) { state.Text = "连接未完成。"; MessageBox.Show(error, "AgentLink 连接失败"); }
-                        else { dialog.Close(); Refresh(); MessageBox.Show("已连接到另一台电脑。以后打开 AgentLink 就能继续使用，无需重复配对。", "AgentLink"); }
+                        if (error != null) { state.Text = "连接失败：" + error; MessageBox.Show(error, "AgentLink 连接失败"); }
+                        else { dialog.Close(); Refresh(); MessageBox.Show(alreadyPaired ? "连接正常。可在主窗口选择这台电脑并开始键鼠共享，无需重复配对。" : "已完成配对。可在主窗口选择这台电脑并开始键鼠共享。", "AgentLink"); }
                     }); } catch { }
                 });
             };
@@ -992,12 +1031,15 @@ static class Program
             }
             try
             {
+                Runtime.TestPairedTargets();
                 LocalStatus status = Runtime.Local(root);
                 Console.WriteLine("SELFTEST OK runtime=" + root);
                 Console.WriteLine("  node=" + Runtime.NodePath(root));
                 Console.WriteLine("  service=" + (status.Online ? "ready" : "unavailable") + " name=" + status.Name
                     + " pairing_records=" + status.ClientCount + " sources=" + status.ClientSourceCount
                     + " input_share=" + (status.InputShareEnabled && status.InputShareHelperAvailable ? "ready" : "unavailable"));
+                Console.WriteLine("  outgoing_peers=" + status.Targets.Count + " names=" + String.Join(",", status.TargetNames.ToArray()));
+                Console.WriteLine("  paired_list_regression=passed");
                 Console.WriteLine("  " + status.Message);
                 Environment.Exit(0);
             }
